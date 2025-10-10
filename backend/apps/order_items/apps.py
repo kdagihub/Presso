@@ -3,4 +3,6 @@ from django.apps import AppConfig
 
 class OrderItemsConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
-    name = 'order_items'
+    name = 'apps.order_items'
+    label = 'order_items'
+    verbose_name = 'Gestion des Articles de Commande'
