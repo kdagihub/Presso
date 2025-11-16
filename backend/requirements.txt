@@ -1,5 +1,66 @@
-asgiref==3.10.0
+# =================================================================
+# PRESSO BACKEND - DEPENDENCIES
+# =================================================================
+
+# Django Core
 Django==5.2.7
-pillow==11.3.0
-python-dotenv==1.1.1
+asgiref==3.10.0
 sqlparse==0.5.3
+
+# Django REST Framework
+djangorestframework==3.16.1
+djangorestframework-simplejwt==5.5.1
+drf-spectacular==0.28.0
+
+# CORS & Security
+django-cors-headers==4.9.0
+
+# JWT
+PyJWT==2.10.1
+
+# Database
+psycopg2-binary==2.9.10
+
+# Redis & Cache
+redis==5.2.0
+django-redis==5.4.0
+hiredis==3.2.0  # Parser C rapide pour Redis (requis par channels-redis)
+
+# Celery (Async Tasks)
+celery==5.4.0
+django-celery-beat==2.8.0
+kombu==5.4.2
+
+# HTTP Client (pour Orange SMS API)
+requests==2.32.3
+urllib3==2.2.3
+
+# Images & Media
+Pillow==11.3.0
+
+# Environment Variables
+python-dotenv==1.1.1
+
+# ASGI Server (remplace Gunicorn)
+daphne==4.1.2
+
+# WebSockets & Real-time (Django Channels)
+channels==4.1.0
+channels-redis==4.2.0
+
+# Push Notifications (Firebase Cloud Messaging)
+firebase-admin==6.5.0
+
+# SMS Providers
+twilio==9.8.4
+
+# Validation & Schemas
+attrs==25.4.0
+jsonschema==4.25.1
+jsonschema-specifications==2025.9.1
+referencing==0.37.0
+rpds-py==0.27.1
+inflection==0.5.1
+PyYAML==6.0.3
+uritemplate==4.2.0
+typing_extensions==4.15.0

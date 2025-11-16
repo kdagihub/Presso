@@ -1,6 +1,9 @@
 import uuid
 from django.db import models
 from django.conf import settings
+from django.contrib.gis.db import models as gis_models
+from django.contrib.gis.geos import Point
+from django.contrib.gis.measure import Distance
 
 
 class Provider(models.Model):
@@ -9,7 +12,12 @@ class Provider(models.Model):
     """
     TYPE_CHOICES = [
         ('pressing', 'Pressing'),
+        ('laverie', 'Laverie'),
+        ('blanchisserie', 'Blanchisserie'),
         ('fanico', 'Fanico'),
+        ('pressing_chaussures', 'Pressing de chaussures'),
+        ('nettoyage', 'Nettoyage'),
+        ('autre', 'Autre'),
     ]
     
     STATUT_KYC_CHOICES = [
@@ -66,7 +74,8 @@ class Provider(models.Model):
         decimal_places=6,
         blank=True,
         null=True,
-        verbose_name="Latitude"
+        verbose_name="Latitude",
+        help_text="Position GPS du prestataire"
     )
     
     longitude = models.DecimalField(
@@ -74,11 +83,27 @@ class Provider(models.Model):
         decimal_places=6,
         blank=True,
         null=True,
-        verbose_name="Longitude"
+        verbose_name="Longitude",
+        help_text="Position GPS du prestataire"
+    )
+    
+    location = gis_models.PointField(
+        blank=True,
+        null=True,
+        verbose_name="Localisation",
+        help_text="Point géographique (généré automatiquement depuis lat/lng)",
+        geography=True,
+        srid=4326  # WGS84 - Standard mondial GPS
     )
     
     adresse = models.TextField(
         verbose_name="Adresse complète"
+    )
+    
+    quartier = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Quartier/Commune"
     )
     
     statut_kyc = models.CharField(
@@ -116,3 +141,91 @@ class Provider(models.Model):
     
     def __str__(self):
         return f"{self.nom_commercial} ({self.get_type_display()})"
+    
+    def save(self, *args, **kwargs):
+        """Créer automatiquement le Point GeoDjango depuis latitude/longitude"""
+        if self.latitude is not None and self.longitude is not None:
+            self.location = Point(float(self.longitude), float(self.latitude))
+        super().save(*args, **kwargs)
+    
+    @staticmethod
+    def find_nearby(latitude, longitude, max_distance_km=10, provider_type=None):
+        """
+        Trouve les prestataires proches d'une position donnée
+        
+        Args:
+            latitude: Latitude de recherche
+            longitude: Longitude de recherche
+            max_distance_km: Distance maximale en km
+            provider_type: 'pressing' ou 'fanico' (optionnel)
+        
+        Returns:
+            QuerySet de prestataires triés par distance
+        """
+        point = Point(float(longitude), float(latitude))
+        
+        queryset = Provider.objects.filter(
+            location__isnull=False,
+            is_active=True,
+            statut_kyc='verified'
+        ).filter(
+            location__distance_lte=(point, Distance(km=max_distance_km))
+        )
+        
+        if provider_type:
+            queryset = queryset.filter(type=provider_type)
+        
+        # Annoter avec la distance et trier
+        return queryset.annotate(
+            distance=gis_models.functions.Distance('location', point)
+        ).order_by('distance')
+    
+    def get_clients_in_coverage(self):
+        """
+        Retourne les clients dans la zone de couverture du prestataire
+        
+        Returns:
+            QuerySet d'utilisateurs clients dans le rayon
+        """
+        from apps.users.models import User
+        
+        if not self.location:
+            return User.objects.none()
+        
+        return User.objects.filter(
+            location__isnull=False,
+            group__name='client'
+        ).filter(
+            location__distance_lte=(self.location, Distance(km=float(self.rayon_km)))
+        ).annotate(
+            distance=gis_models.functions.Distance('location', self.location)
+        ).order_by('distance')
+    
+    def is_within_range(self, user_or_point, tolerance_km=0):
+        """
+        Vérifie si un utilisateur ou point est dans le rayon de couverture
+        
+        Args:
+            user_or_point: Instance User ou Point GeoDjango
+            tolerance_km: Tolérance supplémentaire en km (défaut: 0)
+        
+        Returns:
+            Boolean
+        """
+        if not self.location:
+            return False
+        
+        if hasattr(user_or_point, 'location'):
+            # C'est un User
+            if not user_or_point.location:
+                return False
+            target_location = user_or_point.location
+        else:
+            # C'est un Point
+            target_location = user_or_point
+        
+        max_distance = float(self.rayon_km) + tolerance_km
+        distance_m = self.location.distance(target_location) * 1000  # Convertir en mètres
+        distance_km = distance_m / 1000
+        
+        return distance_km <= max_distance

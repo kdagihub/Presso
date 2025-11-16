@@ -1,11 +1,12 @@
 import uuid
 from django.db import models
+from apps.core.managers import TenantManagerWithQuerySet
 
 
-class Service(models.Model):
+class ServiceTemplate(models.Model):
     """
-    Modèle représentant les types de services proposés
-    (Lavage, Repassage, Express, etc.)
+    Templates de services créés par la plateforme
+    Servent de base pour que les prestataires créent leurs services personnalisés
     """
     MODE_TARIF_CHOICES = [
         ('kg', 'Au kilogramme'),
@@ -53,18 +54,102 @@ class Service(models.Model):
     updated = models.DateTimeField(auto_now=True, verbose_name="Dernière modification")
     
     class Meta:
-        verbose_name = "Service"
-        verbose_name_plural = "Services"
+        verbose_name = "Template de service"
+        verbose_name_plural = "Templates de services"
         ordering = ['label']
     
     def __str__(self):
-        return f"{self.label} ({self.get_mode_tarif_display()})"
+        return f"{self.label} (Template)"
 
 
-class ArticleType(models.Model):
+class Service(models.Model):
     """
-    Types d'articles (chemise, pantalon, robe, etc.)
-    Utilisé pour la tarification personnalisée
+    Services personnalisés par prestataire
+    Chaque prestataire peut créer ses propres services ou utiliser des templates
+    """
+    MODE_TARIF_CHOICES = [
+        ('kg', 'Au kilogramme'),
+        ('piece', 'Par pièce'),
+        ('forfait', 'Forfait'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    provider = models.ForeignKey(
+        'providers.Provider',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='services',
+        verbose_name="Prestataire"
+    )
+    
+    template = models.ForeignKey(
+        ServiceTemplate,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='instances',
+        verbose_name="Basé sur le template",
+        help_text="Template utilisé comme base (optionnel)"
+    )
+    
+    label = models.CharField(
+        max_length=100,
+        verbose_name="Libellé du service"
+    )
+    
+    description = models.TextField(
+        blank=True,
+        verbose_name="Description"
+    )
+    
+    mode_tarif = models.CharField(
+        max_length=20,
+        choices=MODE_TARIF_CHOICES,
+        verbose_name="Mode de tarification"
+    )
+    
+    duree_estimee = models.PositiveIntegerField(
+        verbose_name="Durée estimée (minutes)",
+        help_text="Temps moyen de réalisation"
+    )
+    
+    icone = models.CharField(
+        max_length=50,
+        blank=True,
+        verbose_name="Icône",
+        help_text="Nom de l'icône (ex: iron, washing-machine)"
+    )
+    
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name="Actif"
+    )
+    
+    created = models.DateTimeField(auto_now_add=True, verbose_name="Date de création")
+    updated = models.DateTimeField(auto_now=True, verbose_name="Dernière modification")
+    
+    # Managers
+    objects = TenantManagerWithQuerySet()
+    all_objects = models.Manager()  # Pour admin global
+    
+    class Meta:
+        verbose_name = "Service"
+        verbose_name_plural = "Services"
+        unique_together = ['provider', 'label']
+        ordering = ['provider', 'label']
+        indexes = [
+            models.Index(fields=['provider', 'is_active']),
+        ]
+    
+    def __str__(self):
+        return f"{self.provider.nom_commercial} - {self.label}"
+
+
+class ArticleTypeTemplate(models.Model):
+    """
+    Templates de types d'articles créés par la plateforme
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     
@@ -82,18 +167,70 @@ class ArticleType(models.Model):
     created = models.DateTimeField(auto_now_add=True, verbose_name="Date de création")
     
     class Meta:
-        verbose_name = "Type d'article"
-        verbose_name_plural = "Types d'articles"
+        verbose_name = "Template de type d'article"
+        verbose_name_plural = "Templates de types d'articles"
         ordering = ['nom']
     
     def __str__(self):
-        return self.nom
+        return f"{self.nom} (Template)"
 
 
-class Matiere(models.Model):
+class ArticleType(models.Model):
     """
-    Matières des vêtements (coton, soie, laine, etc.)
-    Utilisé pour la tarification personnalisée
+    Types d'articles personnalisés par prestataire
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    provider = models.ForeignKey(
+        'providers.Provider',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='article_types',
+        verbose_name="Prestataire"
+    )
+    
+    template = models.ForeignKey(
+        ArticleTypeTemplate,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='instances',
+        verbose_name="Basé sur le template"
+    )
+    
+    nom = models.CharField(
+        max_length=100,
+        verbose_name="Nom de l'article"
+    )
+    
+    description = models.TextField(
+        blank=True,
+        verbose_name="Description"
+    )
+    
+    created = models.DateTimeField(auto_now_add=True, verbose_name="Date de création")
+    
+    # Managers
+    objects = TenantManagerWithQuerySet()
+    all_objects = models.Manager()
+    
+    class Meta:
+        verbose_name = "Type d'article"
+        verbose_name_plural = "Types d'articles"
+        unique_together = ['provider', 'nom']
+        ordering = ['provider', 'nom']
+        indexes = [
+            models.Index(fields=['provider']),
+        ]
+    
+    def __str__(self):
+        return f"{self.provider.nom_commercial} - {self.nom}"
+
+
+class MatiereTemplate(models.Model):
+    """
+    Templates de matières créés par la plateforme
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     
@@ -111,9 +248,62 @@ class Matiere(models.Model):
     created = models.DateTimeField(auto_now_add=True, verbose_name="Date de création")
     
     class Meta:
-        verbose_name = "Matière"
-        verbose_name_plural = "Matières"
+        verbose_name = "Template de matière"
+        verbose_name_plural = "Templates de matières"
         ordering = ['nom']
     
     def __str__(self):
-        return self.nom
+        return f"{self.nom} (Template)"
+
+
+class Matiere(models.Model):
+    """
+    Matières personnalisées par prestataire
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    provider = models.ForeignKey(
+        'providers.Provider',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='matieres',
+        verbose_name="Prestataire"
+    )
+    
+    template = models.ForeignKey(
+        MatiereTemplate,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='instances',
+        verbose_name="Basé sur le template"
+    )
+    
+    nom = models.CharField(
+        max_length=100,
+        verbose_name="Nom de la matière"
+    )
+    
+    description = models.TextField(
+        blank=True,
+        verbose_name="Description"
+    )
+    
+    created = models.DateTimeField(auto_now_add=True, verbose_name="Date de création")
+    
+    # Managers
+    objects = TenantManagerWithQuerySet()
+    all_objects = models.Manager()
+    
+    class Meta:
+        verbose_name = "Matière"
+        verbose_name_plural = "Matières"
+        unique_together = ['provider', 'nom']
+        ordering = ['provider', 'nom']
+        indexes = [
+            models.Index(fields=['provider']),
+        ]
+    
+    def __str__(self):
+        return f"{self.provider.nom_commercial} - {self.nom}"

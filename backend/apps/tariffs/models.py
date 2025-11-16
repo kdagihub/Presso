@@ -14,7 +14,7 @@ class ProviderService(models.Model):
     provider = models.ForeignKey(
         Provider,
         on_delete=models.CASCADE,
-        related_name='services',
+        related_name='provider_services',
         verbose_name="Prestataire"
     )
     

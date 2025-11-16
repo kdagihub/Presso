@@ -12,13 +12,25 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# =============================================================================
+# NOTE: Variables d'environnement injectées par Docker Compose
+# Le fichier .env à la racine du projet est lu par docker-compose.yml
+# et injecté automatiquement dans le conteneur via env_file
+# =============================================================================
+
+# =============================================================================
+# CONFIGURATION GEODJANGO (SpatiaLite)
+# =============================================================================
+# Configuration des chemins des bibliothèques géospatiales pour Ubuntu/Debian
+# GDAL 3.8.4 | GEOS 3.12.1 | SpatiaLite 3.45.1
+
+GDAL_LIBRARY_PATH = '/usr/lib/x86_64-linux-gnu/libgdal.so.34'
+GEOS_LIBRARY_PATH = '/usr/lib/x86_64-linux-gnu/libgeos_c.so'
+SPATIALITE_LIBRARY_PATH = '/usr/lib/x86_64-linux-gnu/mod_spatialite.so'
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -30,17 +42,40 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
 DEBUG = os.getenv('DJANGO_DEBUG', 'True') == 'True'
 
 ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '*').split(',')
+DEFAULT_COUNTRY_CODE = os.getenv('DEFAULT_COUNTRY_CODE', '+225')
 
 
 # Application definition
 
 INSTALLED_APPS = [
+    # Django Core
+    'daphne',  # ASGI server - DOIT être en premier pour Channels
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.gis',  # GeoDjango pour la géolocalisation
+    
+    # Django REST Framework
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'rest_framework_simplejwt.token_blacklist',  # JWT Blacklist
+    'drf_spectacular',
+    'corsheaders',
+    
+    # WebSockets & Real-time
+    'channels',  # Django Channels pour WebSockets
+    
+    # Celery
+    'django_celery_beat',  # Tâches planifiées
+    
+    # Apps Presso - Core multitenant
+    'apps.core',  # Doit être avant les autres apps Presso
+    
+    # Apps Presso - API REST
+    'apps.api',  # API centralisée pour tous les serializers/viewsets
     
     # Apps Presso
     'apps.users',
@@ -56,14 +91,22 @@ INSTALLED_APPS = [
 # Modèle utilisateur personnalisé
 AUTH_USER_MODEL = 'users.User'
 
+# Backend d'authentification personnalisé (email/phone/username)
+AUTHENTICATION_BACKENDS = [
+    'apps.users.backends.EmailPhoneUsernameBackend',  # Backend custom
+    'django.contrib.auth.backends.ModelBackend',      # Backend par défaut (fallback)
+]
+
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  # CORS - doit être avant CommonMiddleware
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'apps.core.middleware.TenantMiddleware',  # Middleware multitenant Presso
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -84,15 +127,49 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+ASGI_APPLICATION = 'config.asgi.application'
 
 
-# Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
+# =============================================================================
+# DATABASE - PostgreSQL + PostGIS
+# =============================================================================
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': os.getenv('DB_ENGINE', 'django.contrib.gis.db.backends.postgis'),
+        'NAME': os.getenv('DB_NAME', 'presso_db'),
+        'USER': os.getenv('DB_USER', 'presso_user'),
+        'PASSWORD': os.getenv('DB_PASSWORD', 'presso_password'),
+        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'PORT': os.getenv('DB_PORT', '5432'),
+        'CONN_MAX_AGE': 600,  # Connexions persistantes
+        'OPTIONS': {
+            'connect_timeout': 10,
+        }
+    }
+}
+
+# =============================================================================
+# REDIS & CACHING
+# =============================================================================
+
+REDIS_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': REDIS_URL,
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+            # hiredis est automatiquement utilisé s'il est installé (redis-py 5.x)
+            'CONNECTION_POOL_KWARGS': {
+                'max_connections': 50,
+                'retry_on_timeout': True,
+            },
+            'COMPRESSOR': 'django_redis.compressors.zlib.ZlibCompressor',
+        },
+        'KEY_PREFIX': 'presso',
+        'TIMEOUT': 300,  # 5 minutes par défaut
     }
 }
 
@@ -134,7 +211,7 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
-# Media files (uploads)
+# Media files (uploads)*
 MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
@@ -148,6 +225,336 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # =============================================================================
 
 # Personnalisation de l'interface d'administration
-ADMIN_SITE_HEADER = "PRESSO ADMINISTRATION"
-ADMIN_SITE_TITLE = "Presso Admin"
-ADMIN_INDEX_TITLE = "Tableau de bord - Plateforme de lessive digitale"
+ADMIN_SITE_HEADER = os.getenv('ADMIN_SITE_HEADER', 'PRESSO Administration')
+ADMIN_SITE_TITLE = os.getenv('ADMIN_SITE_TITLE', 'Presso Admin')
+ADMIN_INDEX_TITLE = os.getenv('ADMIN_INDEX_TITLE', 'Tableau de bord PRESSO')
+
+# =============================================================================
+# CONFIGURATION DJANGO REST FRAMEWORK
+# =============================================================================
+
+from datetime import timedelta
+
+REST_FRAMEWORK = {
+    # Authentification
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',  # Pour l'API browsable
+    ],
+    
+    # Permissions par défaut
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    
+    # Pagination
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 20,
+    
+    # Filtrage
+    'DEFAULT_FILTER_BACKENDS': [
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
+    
+    # Format par défaut
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',  # API browsable en dev
+    ],
+    
+    # Schema pour documentation Swagger
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+    
+    # Rate Limiting (Throttling)
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.ScopedRateThrottle',
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': os.getenv('THROTTLE_ANON_RATE', '20/minute'),
+        'user': os.getenv('THROTTLE_USER_RATE', '120/minute'),
+        'auth_login': os.getenv('THROTTLE_AUTH_LOGIN', '5/minute'),
+        'auth_refresh': os.getenv('THROTTLE_AUTH_REFRESH', '60/minute'),
+        'auth_logout': os.getenv('THROTTLE_AUTH_LOGOUT', '60/minute'),
+        'otp_request': os.getenv('THROTTLE_OTP_REQUEST', '3/minute'),
+        'otp_verify': os.getenv('THROTTLE_OTP_VERIFY', '6/minute'),
+        'password_reset_request': os.getenv('THROTTLE_PASSWORD_RESET_REQUEST', '3/minute'),
+        'password_reset_verify': os.getenv('THROTTLE_PASSWORD_RESET_VERIFY', '6/minute'),
+        'password_reset_finalize': os.getenv('THROTTLE_PASSWORD_RESET_FINALIZE', '6/minute'),
+    },
+    
+    # Format des dates
+    'DATETIME_FORMAT': '%Y-%m-%dT%H:%M:%S%z',
+    'DATE_FORMAT': '%Y-%m-%d',
+    'TIME_FORMAT': '%H:%M:%S',
+}
+
+# Configuration JWT (Simple JWT)
+JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', SECRET_KEY)
+JWT_ACCESS_TOKEN_LIFETIME_MINUTES = int(os.getenv('JWT_ACCESS_TOKEN_LIFETIME_MINUTES', '15'))
+JWT_REFRESH_TOKEN_LIFETIME_DAYS = int(os.getenv('JWT_REFRESH_TOKEN_LIFETIME_DAYS', '7'))
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=JWT_ACCESS_TOKEN_LIFETIME_MINUTES),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=JWT_REFRESH_TOKEN_LIFETIME_DAYS),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+    
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': JWT_SECRET_KEY,
+    'VERIFYING_KEY': None,
+    
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+    
+    'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
+    'TOKEN_TYPE_CLAIM': 'token_type',
+}
+
+# Configuration Swagger/OpenAPI (drf-spectacular)
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'PRESSO API',
+    'DESCRIPTION': 'API REST pour la plateforme Presso - Service de lessive en Côte d\'Ivoire',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    
+    'CONTACT': {
+        'name': 'CIACEMS Technologies',
+        'email': 'contact@presso.ci',
+    },
+    
+    'LICENSE': {
+        'name': 'Propriétaire',
+    },
+    
+    # JWT Auth dans Swagger
+    'COMPONENT_SPLIT_REQUEST': True,
+    'SCHEMA_PATH_PREFIX': r'/api/',
+    
+    'AUTHENTICATION_WHITELIST': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ],
+}
+
+# =============================================================================
+# CONFIGURATION CORS (Pour Vue.js frontend)
+# =============================================================================
+
+# En développement : autoriser tous les origins
+CORS_ALLOW_ALL_ORIGINS = DEBUG
+
+# En production : spécifier les origins autorisés
+CORS_ALLOWED_ORIGINS_STR = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:8080,http://localhost:5173')
+CORS_ALLOWED_ORIGINS = [origin.strip() for origin in CORS_ALLOWED_ORIGINS_STR.split(',') if origin.strip()]
+
+CORS_ALLOW_CREDENTIALS = os.getenv('CORS_ALLOW_CREDENTIALS', 'True') == 'True'
+
+CSRF_TRUSTED_ORIGINS_STR = os.getenv('CSRF_TRUSTED_ORIGINS', '')
+if CSRF_TRUSTED_ORIGINS_STR:
+    CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in CSRF_TRUSTED_ORIGINS_STR.split(',') if origin.strip()]
+else:
+    CSRF_TRUSTED_ORIGINS = [origin for origin in CORS_ALLOWED_ORIGINS if origin.startswith('https://')]
+
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
+# =============================================================================
+# CELERY CONFIGURATION
+# =============================================================================
+
+CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL', 'redis://localhost:6379/1')
+CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND', 'redis://localhost:6379/2')
+
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_ENABLE_UTC = True
+
+# Résultats des tâches
+CELERY_RESULT_EXTENDED = True
+CELERY_RESULT_EXPIRES = 3600  # 1 heure
+
+# Contrôle des tâches
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 300  # 5 minutes max
+CELERY_TASK_SOFT_TIME_LIMIT = 240  # Warning à 4 minutes
+
+# Worker
+CELERY_WORKER_PREFETCH_MULTIPLIER = 2
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 1000
+
+# Activer/désactiver les notifications SMS (placeholder)
+NOTIFICATION_SMS_ENABLED = os.getenv('NOTIFICATION_SMS_ENABLED', 'False') == 'True'
+
+# =============================================================================
+# D7 VERIFY (OTP PROVIDER)
+# =============================================================================
+D7_API_BASE_URL = os.getenv('D7_API_BASE_URL', 'https://api.d7networks.com')
+D7_API_TOKEN = os.getenv('D7_API_TOKEN', '')
+D7_ORIGINATOR = os.getenv('D7_ORIGINATOR', 'PressoOTP')
+D7_TIMEOUT_SECONDS = int(os.getenv('D7_TIMEOUT_SECONDS', '20'))
+
+# =============================================================================
+# OTP CONFIGURATION
+# =============================================================================
+
+OTP_LENGTH = int(os.getenv('OTP_LENGTH', '6'))
+OTP_EXPIRY_MINUTES = int(os.getenv('OTP_EXPIRY_MINUTES', '10'))
+OTP_MAX_ATTEMPTS = int(os.getenv('OTP_MAX_ATTEMPTS', '5'))
+OTP_RESEND_COOLDOWN_SECONDS = int(os.getenv('OTP_RESEND_COOLDOWN_SECONDS', '60'))
+
+# =============================================================================
+# EMAIL CONFIGURATION
+# =============================================================================
+
+EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+EMAIL_HOST = os.getenv('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True') == 'True'
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'noreply@presso.pro')
+
+# =============================================================================
+# SECURITY SETTINGS (PRODUCTION)
+# =============================================================================
+
+# HTTPS/SSL
+SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', 'False') == 'True'
+SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', '0'))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = os.getenv('SECURE_HSTS_INCLUDE_SUBDOMAINS', 'False') == 'True'
+SECURE_HSTS_PRELOAD = os.getenv('SECURE_HSTS_PRELOAD', 'False') == 'True'
+
+# Cookies
+SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'False') == 'True'
+CSRF_COOKIE_SECURE = os.getenv('CSRF_COOKIE_SECURE', 'False') == 'True'
+AUTH_COOKIE_SAMESITE = os.getenv('AUTH_COOKIE_SAMESITE', 'Lax')
+CSRF_COOKIE_SAMESITE = os.getenv('CSRF_COOKIE_SAMESITE', 'Lax')
+
+# =============================================================================
+# LOGGING
+# =============================================================================
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'filters': {
+        'require_debug_false': {
+            '()': 'django.utils.log.RequireDebugFalse',
+        },
+        'require_debug_true': {
+            '()': 'django.utils.log.RequireDebugTrue',
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file': {
+            'level': 'WARNING',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': BASE_DIR / 'logs' / 'django.log',
+            'maxBytes': 1024*1024*10,  # 10MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'apps': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'celery': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
+
+# =============================================================================
+# DJANGO CHANNELS CONFIGURATION (WebSockets)
+# =============================================================================
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            # Utiliser une DB Redis différente (DB 3) pour éviter les conflits
+            "hosts": [(os.getenv('REDIS_URL', 'redis://localhost:6379/0').rsplit('/', 1)[0] + '/3')],
+            "capacity": 1500,  # Nombre maximum de messages
+            "expiry": 10,  # Messages expirent après 10s
+        },
+    },
+}
+
+# =============================================================================
+# FIREBASE CLOUD MESSAGING (Push Notifications)
+# =============================================================================
+
+FCM_SERVER_KEY = os.getenv('FCM_SERVER_KEY', '')
+FCM_CREDENTIALS_PATH = os.getenv('FCM_CREDENTIALS_PATH', '')  # Chemin vers firebase-adminsdk.json
+FCM_PROJECT_ID = os.getenv('FCM_PROJECT_ID', '')
+
+# =============================================================================
+# NOTIFICATIONS CONFIGURATION
+# =============================================================================
+
+# Activer/Désactiver les canaux de notification
+NOTIFICATION_CHANNELS = {
+    'websocket': os.getenv('NOTIFICATION_WEBSOCKET_ENABLED', 'True') == 'True',
+    'push': os.getenv('NOTIFICATION_PUSH_ENABLED', 'True') == 'True',
+    'sms': os.getenv('NOTIFICATION_SMS_ENABLED', 'True') == 'True',
+    'email': os.getenv('NOTIFICATION_EMAIL_ENABLED', 'False') == 'True',
+}
+
+# Types de notifications
+NOTIFICATION_TYPES = {
+    'order_created': {'title': 'Nouvelle commande', 'priority': 'high'},
+    'order_status_changed': {'title': 'Mise à jour commande', 'priority': 'high'},
+    'payment_received': {'title': 'Paiement reçu', 'priority': 'normal'},
+    'order_ready': {'title': 'Commande prête', 'priority': 'high'},
+    'order_delivered': {'title': 'Livraison effectuée', 'priority': 'normal'},
+}
