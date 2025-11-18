@@ -13,6 +13,14 @@ from .auth import (
     UserProfileSerializer,
     PasswordChangeSerializer,
 )
+from .providers import (
+    ProviderAgencySerializer,
+    ProviderAgencyWriteSerializer,
+    ProviderStaffSerializer,
+    ProviderStaffInviteSerializer,
+    ProviderStaffUpdateSerializer,
+    ProviderStaffActivateSerializer,
+)
 
 __all__ = [
     'ClientRegisterSerializer',
@@ -25,5 +33,11 @@ __all__ = [
     'PasswordResetFinalizeSerializer',
     'UserProfileSerializer',
     'PasswordChangeSerializer',
+    'ProviderAgencySerializer',
+    'ProviderAgencyWriteSerializer',
+    'ProviderStaffSerializer',
+    'ProviderStaffInviteSerializer',
+    'ProviderStaffUpdateSerializer',
+    'ProviderStaffActivateSerializer',
 ]
 

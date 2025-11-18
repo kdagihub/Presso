@@ -15,6 +15,14 @@ from .auth import (
     ProfileView,
     ChangePasswordView,
 )
+from .providers import (
+    ProviderAgencyListCreateView,
+    ProviderAgencyDetailView,
+    ProviderStaffListView,
+    ProviderStaffInviteView,
+    ProviderStaffDetailView,
+    ProviderStaffActivateView,
+)
 
 __all__ = [
     'RegisterClientView',
@@ -29,5 +37,11 @@ __all__ = [
     'PasswordResetFinalizeView',
     'ProfileView',
     'ChangePasswordView',
+    'ProviderAgencyListCreateView',
+    'ProviderAgencyDetailView',
+    'ProviderStaffListView',
+    'ProviderStaffInviteView',
+    'ProviderStaffDetailView',
+    'ProviderStaffActivateView',
 ]
 

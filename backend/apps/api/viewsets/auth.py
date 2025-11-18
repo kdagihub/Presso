@@ -34,9 +34,10 @@ from apps.api.serializers.auth import (
     PasswordChangeSerializer,
 )
 from apps.core.audit import write_auth_event
+from apps.core.models import Permission, Role
 from apps.core.services.d7_verify import D7VerifyClient, D7VerifyError
 from apps.core.utils.phone import normalize_to_e164
-from apps.providers.models import Provider
+from apps.providers.models import Provider, ProviderAgency, ProviderStaff
 
 SERVICE_TYPE_MAP = {
     'pressing-linge': 'pressing',
@@ -197,6 +198,35 @@ def _register_backoff(prefix: str, key: str, window_sec: int = 300) -> int:
     return count
 
 
+DEFAULT_ROLE_DEFINITIONS = {
+    'owner': {
+        'name': 'Owner',
+        'description': "Propriétaire du pressing",
+        'permissions': '__all__',
+    },
+    'manager': {
+        'name': 'Manager',
+        'description': "Gestionnaire d'agence",
+        'permissions': [
+            'orders.view', 'orders.manage',
+            'services.view', 'services.manage',
+            'tariffs.manage', 'customers.view',
+            'staff.manage', 'stats.view',
+        ],
+    },
+    'operator': {
+        'name': 'Opérateur',
+        'description': "Employé chargé des commandes",
+        'permissions': ['orders.view', 'orders.manage', 'services.view'],
+    },
+    'delivery': {
+        'name': 'Livreur',
+        'description': "Collecte et livraison",
+        'permissions': ['orders.view'],
+    },
+}
+
+
 def _split_name(full_name: str) -> tuple[str, str]:
     parts = (full_name or '').strip().split()
     if not parts:
@@ -206,9 +236,7 @@ def _split_name(full_name: str) -> tuple[str, str]:
     return first, last
 
 
-def _create_provider_profile(user: User, provider_data: dict) -> None:
-    if not provider_data:
-        return
+def _create_provider_profile(user: User, provider_data: dict) -> Provider:
     company_name = provider_data.get('company_name') or user.get_full_name() or user.username
     service_type = provider_data.get('service_type', 'autre')
     mapped_type = SERVICE_TYPE_MAP.get(service_type, 'autre')
@@ -218,7 +246,7 @@ def _create_provider_profile(user: User, provider_data: dict) -> None:
     district = ''
     radius_value = Decimal('5')
 
-    Provider.objects.create(
+    provider = Provider.objects.create(
         user=user,
         type=mapped_type,
         nom_commercial=company_name,
@@ -227,6 +255,107 @@ def _create_provider_profile(user: User, provider_data: dict) -> None:
         adresse=address,
         quartier=district,
     )
+    return provider
+
+
+def _ensure_default_agency(provider: Provider, provider_data: dict) -> ProviderAgency:
+    agency = provider.agencies.filter(is_default=True).first()
+    if agency:
+        return agency
+
+    adresse = provider.adresse or provider_data.get('city') or 'Adresse principale'
+    ville = provider_data.get('city') or 'Abidjan'
+    quartier = provider.quartier or provider_data.get('quartier') or ''
+
+    agency = ProviderAgency.objects.create(
+        provider=provider,
+        name="Agence principale",
+        code='MAIN',
+        description="Agence créée automatiquement",
+        adresse=adresse,
+        ville=ville,
+        quartier=quartier,
+        is_default=True,
+        is_active=True,
+    )
+    return agency
+
+
+def _ensure_default_roles(provider: Provider) -> dict[str, Role]:
+    roles: dict[str, Role] = {}
+    required_codes = {
+        code
+        for config in DEFAULT_ROLE_DEFINITIONS.values()
+        if config['permissions'] != '__all__'
+        for code in config['permissions']
+    }
+    permissions_map = {
+        perm.code: perm
+        for perm in Permission.objects.filter(code__in=required_codes)
+    }
+    all_permissions = None
+
+    for system_key, config in DEFAULT_ROLE_DEFINITIONS.items():
+        role, _ = Role.objects.get_or_create(
+            provider=provider,
+            name=config['name'],
+            defaults={'description': config['description'], 'is_active': True},
+        )
+        role.description = config['description']
+        role.is_active = True
+        role.save(update_fields=['description', 'is_active'])
+
+        if config['permissions'] == '__all__':
+            if all_permissions is None:
+                all_permissions = list(Permission.objects.filter(is_active=True))
+            perms = all_permissions
+        else:
+            perms = [permissions_map[code] for code in config['permissions'] if code in permissions_map]
+        role.permissions.set(perms)
+        roles[system_key] = role
+    return roles
+
+
+def _ensure_owner_staff(
+    provider: Provider,
+    agency: ProviderAgency,
+    user: User,
+    owner_role: Role | None,
+) -> ProviderStaff:
+    defaults = {
+        'agency': agency,
+        'system_role': 'owner',
+        'role': owner_role,
+        'status': 'active',
+        'activated_at': timezone.now(),
+    }
+    staff, created = ProviderStaff.objects.get_or_create(
+        provider=provider,
+        user=user,
+        defaults=defaults,
+    )
+    if not created:
+        changed = False
+        for field, value in defaults.items():
+            current = getattr(staff, field)
+            if current != value:
+                setattr(staff, field, value)
+                changed = True
+        if changed:
+            staff.save(update_fields=list(defaults.keys()))
+    return staff
+
+
+def _bootstrap_provider_account(user: User, provider_payload: dict) -> Provider:
+    provider = _create_provider_profile(user, provider_payload)
+    agency = _ensure_default_agency(provider, provider_payload)
+    role_map = _ensure_default_roles(provider)
+    owner_role = role_map.get('owner')
+    _ensure_owner_staff(provider, agency, user, owner_role)
+    if owner_role and user.custom_role != owner_role:
+        user.custom_role = owner_role
+        user.save(update_fields=['custom_role'])
+    return provider
 
 
 class RegisterClientView(APIView):
@@ -415,7 +544,7 @@ class OTPVerifyView(APIView):
         user.mark_phone_verified()
 
         if register_type == 'provider':
-            _create_provider_profile(user, pending.get('provider') or {})
+            _bootstrap_provider_account(user, pending.get('provider') or {})
 
         refresh = RefreshToken.for_user(user)
         access = str(refresh.access_token)

@@ -18,6 +18,14 @@ from apps.api.viewsets.auth import (
     ProfileView,
     ChangePasswordView,
 )
+from apps.api.viewsets.providers import (
+    ProviderAgencyListCreateView,
+    ProviderAgencyDetailView,
+    ProviderStaffListView,
+    ProviderStaffInviteView,
+    ProviderStaffDetailView,
+    ProviderStaffActivateView,
+)
 from apps.api.viewsets.webhooks import (
     orange_delivery_receipt,
     orange_mobile_originated,
@@ -41,6 +49,16 @@ urlpatterns = [
     path('auth/password/reset/verify/', PasswordResetVerifyView.as_view(), name='auth-password-reset-verify'),
     path('auth/password/reset/finalize/', PasswordResetFinalizeView.as_view(), name='auth-password-reset-finalize'),
     path('auth/token/verify/', TokenVerifyView.as_view(), name='token_verify'),
+
+    # =====================================================================
+    # PROVIDER MANAGEMENT
+    # =====================================================================
+    path('providers/agencies/', ProviderAgencyListCreateView.as_view(), name='provider-agency-list'),
+    path('providers/agencies/<uuid:agency_id>/', ProviderAgencyDetailView.as_view(), name='provider-agency-detail'),
+    path('providers/staff/', ProviderStaffListView.as_view(), name='provider-staff-list'),
+    path('providers/staff/invite/', ProviderStaffInviteView.as_view(), name='provider-staff-invite'),
+    path('providers/staff/<uuid:staff_id>/', ProviderStaffDetailView.as_view(), name='provider-staff-detail'),
+    path('providers/staff/activate/', ProviderStaffActivateView.as_view(), name='provider-staff-activate'),
     
     # =====================================================================
     # WEBHOOKS ORANGE SMS
