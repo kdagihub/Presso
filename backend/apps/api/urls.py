@@ -1,8 +1,8 @@
 """
 URLs de l'API REST Presso
 """
-from django.urls import path
-from rest_framework_simplejwt.views import TokenVerifyView
+from django.urls import path  # type: ignore
+from rest_framework_simplejwt.views import TokenVerifyView  # type: ignore
 
 from apps.api.viewsets.auth import (
     RegisterClientView,
@@ -25,6 +25,25 @@ from apps.api.viewsets.providers import (
     ProviderStaffInviteView,
     ProviderStaffDetailView,
     ProviderStaffActivateView,
+    ProviderSettingsView,
+    ProviderServiceListCreateView,
+    ProviderServiceDetailView,
+    ProviderArticleTypeListCreateView,
+    ProviderArticleTypeDetailView,
+    ProviderMatiereListCreateView,
+    ProviderMatiereDetailView,
+    ProviderTariffListCreateView,
+    ProviderTariffDetailView,
+    CatalogProviderServicesPublicView,
+    CatalogProviderServiceDetailView,
+)
+from apps.api.viewsets.orders import (
+    OrderListCreateView,
+    OrderDetailView,
+    ProviderOrderListView,
+    ProviderOrderDetailView,
+    ProviderOrderStatusUpdateView,
+    ProviderOrderAssignView,
 )
 from apps.api.viewsets.webhooks import (
     orange_delivery_receipt,
@@ -59,6 +78,27 @@ urlpatterns = [
     path('providers/staff/invite/', ProviderStaffInviteView.as_view(), name='provider-staff-invite'),
     path('providers/staff/<uuid:staff_id>/', ProviderStaffDetailView.as_view(), name='provider-staff-detail'),
     path('providers/staff/activate/', ProviderStaffActivateView.as_view(), name='provider-staff-activate'),
+    path('providers/settings/', ProviderSettingsView.as_view(), name='provider-settings'),
+    path('providers/services/', ProviderServiceListCreateView.as_view(), name='provider-services'),
+    path('providers/services/<uuid:service_id>/', ProviderServiceDetailView.as_view(), name='provider-service-detail'),
+    path('providers/catalog/article-types/', ProviderArticleTypeListCreateView.as_view(), name='provider-article-types'),
+    path('providers/catalog/article-types/<uuid:type_id>/', ProviderArticleTypeDetailView.as_view(), name='provider-article-type-detail'),
+    path('providers/catalog/materials/', ProviderMatiereListCreateView.as_view(), name='provider-materials'),
+    path('providers/catalog/materials/<uuid:matiere_id>/', ProviderMatiereDetailView.as_view(), name='provider-material-detail'),
+    path('providers/tariffs/', ProviderTariffListCreateView.as_view(), name='provider-tariffs'),
+    path('providers/tariffs/<uuid:tariff_id>/', ProviderTariffDetailView.as_view(), name='provider-tariff-detail'),
+    path('catalog/providers/<uuid:provider_id>/services/', CatalogProviderServicesPublicView.as_view(), name='public-provider-services'),
+    path('catalog/providers/<uuid:provider_id>/services/<uuid:offer_id>/details/', CatalogProviderServiceDetailView.as_view(), name='public-provider-service-details'),
+    path('providers/orders/', ProviderOrderListView.as_view(), name='provider-order-list'),
+    path('providers/orders/<uuid:order_id>/', ProviderOrderDetailView.as_view(), name='provider-order-detail'),
+    path('providers/orders/<uuid:order_id>/status/', ProviderOrderStatusUpdateView.as_view(), name='provider-order-status'),
+    path('providers/orders/<uuid:order_id>/assign/', ProviderOrderAssignView.as_view(), name='provider-order-assign'),
+
+    # =====================================================================
+    # COMMANDES CLIENT
+    # =====================================================================
+    path('orders/', OrderListCreateView.as_view(), name='client-orders'),
+    path('orders/<uuid:order_id>/', OrderDetailView.as_view(), name='client-order-detail'),
     
     # =====================================================================
     # WEBHOOKS ORANGE SMS

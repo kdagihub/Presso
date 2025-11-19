@@ -14,6 +14,12 @@ from apps.api.permissions import (
     CanManageStaff,
     require_provider_member,
     require_can_manage_staff,
+    CanManageSettings,
+    require_can_manage_settings,
+    CanManageServices,
+    require_can_manage_services,
+    CanManageTariffs,
+    require_can_manage_tariffs,
 )
 from apps.api.serializers.providers import (
     ProviderAgencySerializer,
@@ -22,9 +28,22 @@ from apps.api.serializers.providers import (
     ProviderStaffInviteSerializer,
     ProviderStaffUpdateSerializer,
     ProviderStaffActivateSerializer,
+    ProviderSettingsSerializer,
+    ProviderSettingsUpdateSerializer,
+    ProviderServiceSerializer,
+    ProviderServiceWriteSerializer,
+    ArticleTypeSerializer,
+    ArticleTypeWriteSerializer,
+    MatiereSerializer,
+    MatiereWriteSerializer,
+    TariffSerializer,
+    TariffWriteSerializer,
 )
 from apps.providers.models import Provider, ProviderAgency, ProviderStaff
+from apps.core.models import ProviderSettings
 from apps.providers.services.staff import invite_staff, activate_staff, assign_role
+from apps.services.models import Service, ArticleType, Matiere
+from apps.tariffs.models import ProviderService as ProviderServiceLink, Tariff
 
 
 def _get_agency_or_404(provider: Provider, agency_id) -> ProviderAgency:
@@ -39,6 +58,41 @@ def _get_staff_or_404(provider: Provider, staff_id) -> ProviderStaff:
         return provider.staff_members.select_related('user', 'agency', 'role').get(id=staff_id)
     except ProviderStaff.DoesNotExist as exc:
         raise NotFound('Membre du staff introuvable') from exc
+
+
+def _get_service_or_404(provider: Provider, service_id) -> Service:
+    try:
+        return Service.objects.filter(provider=provider).get(id=service_id)
+    except Service.DoesNotExist as exc:
+        raise NotFound('Service introuvable') from exc
+
+
+def _get_provider_service_or_404(provider: Provider, pk) -> ProviderServiceLink:
+    try:
+        return ProviderServiceLink.objects.select_related('service').get(provider=provider, id=pk)
+    except ProviderServiceLink.DoesNotExist as exc:
+        raise NotFound('Catalogue service introuvable') from exc
+
+
+def _get_article_type_or_404(provider: Provider, pk) -> ArticleType:
+    try:
+        return ArticleType.objects.get(provider=provider, id=pk)
+    except ArticleType.DoesNotExist as exc:
+        raise NotFound("Type d'article introuvable") from exc
+
+
+def _get_matiere_or_404(provider: Provider, pk) -> Matiere:
+    try:
+        return Matiere.objects.get(provider=provider, id=pk)
+    except Matiere.DoesNotExist as exc:
+        raise NotFound('Matière introuvable') from exc
+
+
+def _get_tariff_or_404(provider: Provider, pk) -> Tariff:
+    try:
+        return Tariff.objects.get(provider=provider, id=pk)
+    except Tariff.DoesNotExist as exc:
+        raise NotFound('Tarif introuvable') from exc
 
 
 def _ensure_single_default(
@@ -211,3 +265,248 @@ class ProviderStaffActivateView(APIView):
         except ProviderStaff.DoesNotExist as exc:
             raise NotFound('Invitation introuvable ou expirée') from exc
         return Response(ProviderStaffSerializer(staff).data)
+
+
+def _get_or_create_settings(provider: Provider) -> ProviderSettings:
+    settings = getattr(provider, 'settings', None)
+    if settings:
+        return settings
+    settings, _ = ProviderSettings.objects.get_or_create(
+        provider=provider,
+        defaults={'business_name': provider.nom_commercial},
+    )
+    return settings
+
+
+class ProviderSettingsView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsProviderMember]
+
+    def get(self, request):
+        provider, _ = require_provider_member(request)
+        settings = _get_or_create_settings(provider)
+        return Response(ProviderSettingsSerializer(settings).data)
+
+    def patch(self, request):
+        provider, _ = require_can_manage_settings(request)
+        settings = _get_or_create_settings(provider)
+        serializer = ProviderSettingsUpdateSerializer(settings, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(ProviderSettingsSerializer(settings).data)
+
+
+class ProviderServiceListCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanManageServices]
+
+    def get(self, request):
+        provider, _ = require_can_manage_services(request)
+        services = ProviderServiceLink.objects.filter(provider=provider).select_related('service').order_by('service__label')
+        return Response(ProviderServiceSerializer(services, many=True).data)
+
+    def post(self, request):
+        provider, _ = require_can_manage_services(request)
+        serializer = ProviderServiceWriteSerializer(data=request.data, context={'provider': provider})
+        serializer.is_valid(raise_exception=True)
+        offer = serializer.save()
+        return Response(ProviderServiceSerializer(offer).data, status=status.HTTP_201_CREATED)
+
+
+class ProviderServiceDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanManageServices]
+
+    def get(self, request, service_id):
+        provider, _ = require_can_manage_services(request)
+        offer = _get_provider_service_or_404(provider, service_id)
+        return Response(ProviderServiceSerializer(offer).data)
+
+    def patch(self, request, service_id):
+        provider, _ = require_can_manage_services(request)
+        offer = _get_provider_service_or_404(provider, service_id)
+        serializer = ProviderServiceWriteSerializer(
+            offer,
+            data=request.data,
+            partial=True,
+            context={'provider': provider},
+        )
+        serializer.is_valid(raise_exception=True)
+        offer = serializer.save()
+        return Response(ProviderServiceSerializer(offer).data)
+
+    def delete(self, request, service_id):
+        provider, _ = require_can_manage_services(request)
+        offer = _get_provider_service_or_404(provider, service_id)
+        offer.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ProviderArticleTypeListCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanManageServices]
+
+    def get(self, request):
+        provider, _ = require_can_manage_services(request)
+        items = ArticleType.objects.filter(provider=provider).order_by('nom')
+        return Response(ArticleTypeSerializer(items, many=True).data)
+
+    def post(self, request):
+        provider, _ = require_can_manage_services(request)
+        serializer = ArticleTypeWriteSerializer(data=request.data, context={'provider': provider})
+        serializer.is_valid(raise_exception=True)
+        article_type = serializer.save()
+        return Response(ArticleTypeSerializer(article_type).data, status=status.HTTP_201_CREATED)
+
+
+class ProviderArticleTypeDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanManageServices]
+
+    def get(self, request, type_id):
+        provider, _ = require_can_manage_services(request)
+        article_type = _get_article_type_or_404(provider, type_id)
+        return Response(ArticleTypeSerializer(article_type).data)
+
+    def patch(self, request, type_id):
+        provider, _ = require_can_manage_services(request)
+        article_type = _get_article_type_or_404(provider, type_id)
+        serializer = ArticleTypeWriteSerializer(article_type, data=request.data, partial=True, context={'provider': provider})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(ArticleTypeSerializer(article_type).data)
+
+    def delete(self, request, type_id):
+        provider, _ = require_can_manage_services(request)
+        article_type = _get_article_type_or_404(provider, type_id)
+        article_type.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ProviderMatiereListCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanManageServices]
+
+    def get(self, request):
+        provider, _ = require_can_manage_services(request)
+        items = Matiere.objects.filter(provider=provider).order_by('nom')
+        return Response(MatiereSerializer(items, many=True).data)
+
+    def post(self, request):
+        provider, _ = require_can_manage_services(request)
+        serializer = MatiereWriteSerializer(data=request.data, context={'provider': provider})
+        serializer.is_valid(raise_exception=True)
+        matiere = serializer.save()
+        return Response(MatiereSerializer(matiere).data, status=status.HTTP_201_CREATED)
+
+
+class ProviderMatiereDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanManageServices]
+
+    def get(self, request, matiere_id):
+        provider, _ = require_can_manage_services(request)
+        matiere = _get_matiere_or_404(provider, matiere_id)
+        return Response(MatiereSerializer(matiere).data)
+
+    def patch(self, request, matiere_id):
+        provider, _ = require_can_manage_services(request)
+        matiere = _get_matiere_or_404(provider, matiere_id)
+        serializer = MatiereWriteSerializer(matiere, data=request.data, partial=True, context={'provider': provider})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(MatiereSerializer(matiere).data)
+
+    def delete(self, request, matiere_id):
+        provider, _ = require_can_manage_services(request)
+        matiere = _get_matiere_or_404(provider, matiere_id)
+        matiere.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ProviderTariffListCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanManageTariffs]
+
+    def get(self, request):
+        provider, _ = require_can_manage_tariffs(request)
+        qs = Tariff.objects.filter(provider=provider).select_related('article_type', 'matiere', 'service')
+        return Response(TariffSerializer(qs, many=True).data)
+
+    def post(self, request):
+        provider, _ = require_can_manage_tariffs(request)
+        serializer = TariffWriteSerializer(data=request.data, context={'provider': provider})
+        serializer.is_valid(raise_exception=True)
+        tariff = serializer.save()
+        return Response(TariffSerializer(tariff).data, status=status.HTTP_201_CREATED)
+
+
+class ProviderTariffDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated, CanManageTariffs]
+
+    def get(self, request, tariff_id):
+        provider, _ = require_can_manage_tariffs(request)
+        tariff = _get_tariff_or_404(provider, tariff_id)
+        return Response(TariffSerializer(tariff).data)
+
+    def patch(self, request, tariff_id):
+        provider, _ = require_can_manage_tariffs(request)
+        tariff = _get_tariff_or_404(provider, tariff_id)
+        serializer = TariffWriteSerializer(tariff, data=request.data, partial=True, context={'provider': provider})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(TariffSerializer(tariff).data)
+
+    def delete(self, request, tariff_id):
+        provider, _ = require_can_manage_tariffs(request)
+        tariff = _get_tariff_or_404(provider, tariff_id)
+        tariff.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CatalogProviderServicesPublicView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, provider_id):
+        services = ProviderServiceLink.objects.filter(
+            provider_id=provider_id,
+            is_available=True,
+        ).select_related('service')
+        return Response(ProviderServiceSerializer(services, many=True).data)
+
+
+class CatalogProviderServiceDetailView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, provider_id, offer_id):
+        try:
+            provider = Provider.objects.get(id=provider_id, is_active=True)
+        except Provider.DoesNotExist as exc:
+            raise NotFound('Prestataire introuvable') from exc
+
+        try:
+            offer = ProviderServiceLink.objects.select_related('service').get(
+                provider=provider,
+                id=offer_id,
+                is_available=True,
+            )
+        except ProviderServiceLink.DoesNotExist as exc:
+            raise NotFound('Service non disponible') from exc
+
+        tariffs = Tariff.objects.select_related('article_type', 'matiere').filter(
+            provider=provider,
+            service=offer.service,
+        )
+        article_type_ids = tariffs.values_list('article_type_id', flat=True)
+        matiere_ids = [mid for mid in tariffs.values_list('matiere_id', flat=True) if mid]
+
+        article_types = ArticleType.objects.filter(id__in=article_type_ids)
+        matieres = Matiere.objects.filter(id__in=matiere_ids) if matiere_ids else Matiere.objects.none()
+
+        data = {
+            'service': {
+                'id': str(offer.service.id),
+                'label': offer.service.label,
+                'description': offer.service.description,
+                'mode_tarif': offer.service.mode_tarif,
+                'duree_estimee': offer.service.duree_estimee,
+                'icone': offer.service.icone,
+            },
+            'provider_service': ProviderServiceSerializer(offer).data,
+            'article_types': ArticleTypeSerializer(article_types, many=True).data,
+            'matieres': MatiereSerializer(matieres, many=True).data,
+            'tariffs': TariffSerializer(tariffs, many=True).data,
+        }
+        return Response(data)

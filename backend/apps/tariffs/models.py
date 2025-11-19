@@ -1,5 +1,5 @@
 import uuid
-from django.db import models
+from django.db import models  # type: ignore
 from apps.providers.models import Provider
 from apps.services.models import Service, ArticleType, Matiere
 

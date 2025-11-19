@@ -1,5 +1,8 @@
 import uuid
-from django.db import models
+from django.db import models  # type: ignore
+from django.db.models import Q  # type: ignore
+from django.utils import timezone  # type: ignore
+
 from apps.core.managers import TenantManagerWithQuerySet
 
 
@@ -131,20 +134,48 @@ class Service(models.Model):
     updated = models.DateTimeField(auto_now=True, verbose_name="Dernière modification")
     
     # Managers
-    objects = TenantManagerWithQuerySet()
+    is_deleted = models.BooleanField(
+        default=False,
+        verbose_name="Supprimé",
+        help_text="Indique si le service a été supprimé (soft delete)"
+    )
+    deleted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Supprimé le"
+    )
+
+    class ServiceManager(TenantManagerWithQuerySet):
+        def get_queryset(self):
+            return super().get_queryset().filter(is_deleted=False)
+
+    objects = ServiceManager()
     all_objects = models.Manager()  # Pour admin global
     
     class Meta:
         verbose_name = "Service"
         verbose_name_plural = "Services"
-        unique_together = ['provider', 'label']
         ordering = ['provider', 'label']
         indexes = [
             models.Index(fields=['provider', 'is_active']),
         ]
+        constraints = [
+            models.UniqueConstraint(
+                fields=['provider', 'label'],
+                condition=Q(is_deleted=False),
+                name='unique_service_label_per_provider_active',
+            ),
+        ]
     
     def __str__(self):
         return f"{self.provider.nom_commercial} - {self.label}"
+
+    def soft_delete(self):
+        if not self.is_deleted:
+            self.is_deleted = True
+            self.is_active = False
+            self.deleted_at = timezone.now()
+            self.save(update_fields=['is_deleted', 'is_active', 'deleted_at'])
 
 
 class ArticleTypeTemplate(models.Model):

@@ -60,6 +60,54 @@ def require_can_manage_staff(request) -> Tuple[Provider, Optional[ProviderStaff]
     raise PermissionDenied("Permission insuffisante pour gérer le staff")
 
 
+def require_can_manage_settings(request) -> Tuple[Provider, Optional[ProviderStaff]]:
+    provider, staff = require_provider_member(request)
+    user = request.user
+    if user.is_superuser or getattr(provider, 'user_id', None) == user.id:
+        return provider, staff
+    if staff and staff.system_role in {'owner', 'manager'}:
+        return provider, staff
+    if user.has_custom_permission('settings.manage'):
+        return provider, staff
+    raise PermissionDenied("Permission insuffisante pour gérer les paramètres")
+
+
+def require_can_manage_services(request) -> Tuple[Provider, Optional[ProviderStaff]]:
+    provider, staff = require_provider_member(request)
+    user = request.user
+    if user.is_superuser or getattr(provider, 'user_id', None) == user.id:
+        return provider, staff
+    if staff and staff.system_role in {'owner', 'manager'}:
+        return provider, staff
+    if user.has_custom_permission('services.manage'):
+        return provider, staff
+    raise PermissionDenied("Permission insuffisante pour gérer les services")
+
+
+def require_can_manage_tariffs(request) -> Tuple[Provider, Optional[ProviderStaff]]:
+    provider, staff = require_provider_member(request)
+    user = request.user
+    if user.is_superuser or getattr(provider, 'user_id', None) == user.id:
+        return provider, staff
+    if staff and staff.system_role in {'owner', 'manager'}:
+        return provider, staff
+    if user.has_custom_permission('tariffs.manage'):
+        return provider, staff
+    raise PermissionDenied("Permission insuffisante pour gérer les tarifs")
+
+
+def require_can_manage_orders(request) -> Tuple[Provider, Optional[ProviderStaff]]:
+    provider, staff = require_provider_member(request)
+    user = request.user
+    if user.is_superuser or getattr(provider, 'user_id', None) == user.id:
+        return provider, staff
+    if staff and staff.system_role in {'owner', 'manager', 'operator'}:
+        return provider, staff
+    if user.has_custom_permission('orders.manage'):
+        return provider, staff
+    raise PermissionDenied("Permission insuffisante pour gérer les commandes")
+
+
 class IsProviderMember(BasePermission):
     message = "Accès réservé aux prestataires"
 
@@ -100,5 +148,77 @@ class IsProviderOwner(IsProviderMember):
         if getattr(provider, 'user_id', None) == request.user.id:
             return True
         if staff and staff.system_role == 'owner':
+            return True
+        return False
+
+
+class CanManageServices(IsProviderMember):
+    message = "Permission insuffisante pour gérer les services"
+
+    def has_permission(self, request, view) -> bool:
+        if not super().has_permission(request, view):
+            return False
+        provider = getattr(request, 'provider', None)
+        staff = getattr(request, 'provider_staff', None)
+        user = request.user
+        if user.is_superuser or getattr(provider, 'user_id', None) == user.id:
+            return True
+        if staff and staff.system_role in {'owner', 'manager'}:
+            return True
+        if user.has_custom_permission('services.manage'):
+            return True
+        return False
+
+
+class CanManageTariffs(IsProviderMember):
+    message = "Permission insuffisante pour gérer les tarifs"
+
+    def has_permission(self, request, view) -> bool:
+        if not super().has_permission(request, view):
+            return False
+        provider = getattr(request, 'provider', None)
+        staff = getattr(request, 'provider_staff', None)
+        user = request.user
+        if user.is_superuser or getattr(provider, 'user_id', None) == user.id:
+            return True
+        if staff and staff.system_role in {'owner', 'manager'}:
+            return True
+        if user.has_custom_permission('tariffs.manage'):
+            return True
+        return False
+
+
+class CanManageOrders(IsProviderMember):
+    message = "Permission insuffisante pour gérer les commandes"
+
+    def has_permission(self, request, view) -> bool:
+        if not super().has_permission(request, view):
+            return False
+        provider = getattr(request, 'provider', None)
+        staff = getattr(request, 'provider_staff', None)
+        user = request.user
+        if user.is_superuser or getattr(provider, 'user_id', None) == user.id:
+            return True
+        if staff and staff.system_role in {'owner', 'manager', 'operator'}:
+            return True
+        if user.has_custom_permission('orders.manage'):
+            return True
+        return False
+
+
+class CanManageSettings(IsProviderMember):
+    message = "Permission insuffisante pour gérer les paramètres"
+
+    def has_permission(self, request, view) -> bool:
+        if not super().has_permission(request, view):
+            return False
+        provider = getattr(request, 'provider', None)
+        staff = getattr(request, 'provider_staff', None)
+        user = request.user
+        if user.is_superuser or getattr(provider, 'user_id', None) == user.id:
+            return True
+        if staff and staff.system_role in {'owner', 'manager'}:
+            return True
+        if user.has_custom_permission('settings.manage'):
             return True
         return False

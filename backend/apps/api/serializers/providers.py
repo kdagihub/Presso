@@ -6,7 +6,23 @@ from typing import Any, Optional
 from rest_framework import serializers  # type: ignore
 
 from apps.providers.models import ProviderAgency, ProviderStaff
-from apps.core.models import Role
+from apps.core.models import Role, ProviderSettings
+from apps.services.models import Service, ServiceTemplate, ArticleType, Matiere
+from apps.tariffs.models import ProviderService as ProviderServiceLink, Tariff
+
+
+def _validate_hex_color(value: str) -> str:
+    if not value:
+        return value
+    value = value.strip()
+    if not value.startswith('#'):
+        raise serializers.ValidationError("La couleur doit commencer par '#'.")
+    if len(value) not in {4, 7}:
+        raise serializers.ValidationError("La couleur doit être au format #RGB ou #RRGGBB.")
+    hex_part = value[1:]
+    if not all(c in '0123456789abcdefABCDEF' for c in hex_part):
+        raise serializers.ValidationError("Couleur hexadécimale invalide.")
+    return value
 
 
 class ProviderAgencySerializer(serializers.ModelSerializer):
@@ -171,3 +187,312 @@ class ProviderStaffUpdateSerializer(serializers.Serializer):
 
 class ProviderStaffActivateSerializer(serializers.Serializer):
     invite_token = serializers.CharField(max_length=128)
+
+
+class ProviderSettingsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProviderSettings
+        fields = [
+            'id',
+            'business_name',
+            'logo',
+            'primary_color',
+            'auto_accept_orders',
+            'require_payment_before',
+            'min_order_amount',
+            'delivery_fee',
+            'email_notifications',
+            'sms_notifications',
+            'notification_email',
+            'notification_phone',
+            'opening_hours',
+            'metadata',
+            'created',
+            'updated',
+        ]
+        read_only_fields = ['id', 'created', 'updated']
+
+
+class ProviderSettingsUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProviderSettings
+        fields = [
+            'business_name',
+            'logo',
+            'primary_color',
+            'auto_accept_orders',
+            'require_payment_before',
+            'min_order_amount',
+            'delivery_fee',
+            'email_notifications',
+            'sms_notifications',
+            'notification_email',
+            'notification_phone',
+            'opening_hours',
+            'metadata',
+        ]
+        extra_kwargs = {field: {'required': False} for field in fields}
+
+    def validate_primary_color(self, value: str) -> str:
+        return _validate_hex_color(value)
+
+    def validate_opening_hours(self, value):
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("Les horaires doivent être un objet JSON.")
+        for day, slots in value.items():
+            if not isinstance(slots, list):
+                raise serializers.ValidationError(f"Horaires invalides pour {day}.")
+            for slot in slots:
+                if (
+                    not isinstance(slot, (list, tuple))
+                    or len(slot) != 2
+                    or not all(isinstance(part, str) for part in slot)
+                ):
+                    raise serializers.ValidationError(f"Créneau invalide pour {day}.")
+        return value
+
+    def validate(self, attrs):
+        for field in ('min_order_amount', 'delivery_fee'):
+            if field in attrs and attrs[field] is not None:
+                if attrs[field] < 0:
+                    raise serializers.ValidationError({field: "La valeur doit être positive."})
+        return attrs
+#
+# Provider Catalog (ProviderService + Tariffs)
+#
+
+
+class ProviderServiceSerializer(serializers.ModelSerializer):
+    service = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProviderServiceLink
+        fields = [
+            'id',
+            'service',
+            'prix_base',
+            'delai',
+            'is_available',
+            'created',
+            'updated',
+        ]
+        read_only_fields = ['id', 'created', 'updated']
+
+    def get_service(self, obj: ProviderServiceLink):
+        return {
+            'id': str(obj.service.id),
+            'label': obj.service.label,
+            'mode_tarif': obj.service.mode_tarif,
+            'description': obj.service.description,
+            'icone': obj.service.icone,
+        }
+
+
+class ProviderServiceWriteSerializer(serializers.Serializer):
+    service_id = serializers.UUIDField(required=False)
+    label = serializers.CharField(max_length=100, required=False)
+    description = serializers.CharField(required=False, allow_blank=True)
+    mode_tarif = serializers.ChoiceField(choices=Service.MODE_TARIF_CHOICES, required=False)
+    duree_estimee = serializers.IntegerField(required=False)
+    icone = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    template_id = serializers.UUIDField(required=False)
+    prix_base = serializers.DecimalField(max_digits=10, decimal_places=2)
+    delai = serializers.IntegerField(min_value=1)
+    is_available = serializers.BooleanField(default=True)
+
+    def validate(self, attrs):
+        provider = self.context['provider']
+        if self.instance:
+            if any(field in attrs for field in ('service_id', 'template_id', 'label', 'mode_tarif', 'duree_estimee')):
+                raise serializers.ValidationError("La modification du service lié n'est pas autorisée.")
+            return attrs
+
+        if attrs.get('service_id'):
+            service = self._validate_existing_service(provider, attrs['service_id'])
+        else:
+            template = None
+            if attrs.get('template_id'):
+                template = self._validate_template(attrs['template_id'])
+                attrs.setdefault('mode_tarif', template.mode_tarif)
+                attrs.setdefault('duree_estimee', template.duree_estimee)
+                if template.description and 'description' not in attrs:
+                    attrs['description'] = template.description
+                if template.icone and 'icone' not in attrs:
+                    attrs['icone'] = template.icone
+
+            required_fields = ['label', 'mode_tarif', 'duree_estimee']
+            missing = [field for field in required_fields if not attrs.get(field)]
+            if missing:
+                raise serializers.ValidationError(
+                    f"Champs requis pour créer un service personnalisé: {', '.join(missing)}."
+                )
+            service = Service.objects.create(
+                provider=provider,
+                label=attrs['label'],
+                description=attrs.get('description', ''),
+                mode_tarif=attrs['mode_tarif'],
+                duree_estimee=attrs['duree_estimee'],
+                icone=attrs.get('icone', ''),
+                template=template,
+            )
+
+        attrs['service'] = service
+        return attrs
+
+    def _validate_existing_service(self, provider, service_id):
+        try:
+            service = Service.objects.get(id=service_id)
+        except Service.DoesNotExist as exc:
+            raise serializers.ValidationError({'service_id': 'Service introuvable.'}) from exc
+        if service.provider and service.provider != provider:
+            raise serializers.ValidationError({'service_id': 'Service non autorisé pour ce prestataire.'})
+        return service
+
+    def _validate_template(self, template_id):
+        try:
+            return ServiceTemplate.objects.get(id=template_id, is_active=True)
+        except ServiceTemplate.DoesNotExist as exc:
+            raise serializers.ValidationError({'template_id': 'Template introuvable.'}) from exc
+
+    def create(self, validated_data):
+        provider = self.context['provider']
+        service = validated_data['service']
+        return ProviderServiceLink.objects.create(
+            provider=provider,
+            service=service,
+            prix_base=validated_data['prix_base'],
+            delai=validated_data['delai'],
+            is_available=validated_data.get('is_available', True),
+        )
+
+    def update(self, instance: ProviderServiceLink, validated_data):
+        # service change n'est pas supporté via PATCH
+        for field in ['prix_base', 'delai', 'is_available']:
+            if field in validated_data:
+                setattr(instance, field, validated_data[field])
+        instance.save(update_fields=['prix_base', 'delai', 'is_available', 'updated'])
+        return instance
+
+
+class ArticleTypeSerializer(serializers.ModelSerializer):
+    template = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ArticleType
+        fields = ['id', 'nom', 'description', 'template', 'created']
+        read_only_fields = ['id', 'created', 'template']
+
+    def get_template(self, obj):
+        if obj.template:
+            return {'id': str(obj.template.id), 'nom': obj.template.nom}
+        return None
+
+
+class ArticleTypeWriteSerializer(serializers.ModelSerializer):
+    template_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
+
+    class Meta:
+        model = ArticleType
+        fields = ['nom', 'description', 'template_id']
+
+    def validate_template_id(self, value):
+        if not value:
+            return None
+        from apps.services.models import ArticleTypeTemplate
+
+        try:
+            return ArticleTypeTemplate.objects.get(id=value)
+        except ArticleTypeTemplate.DoesNotExist as exc:
+            raise serializers.ValidationError("Template introuvable.") from exc
+
+    def create(self, validated_data):
+        provider = self.context['provider']
+        template = validated_data.pop('template_id', None)
+        return ArticleType.objects.create(provider=provider, template=template, **validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data.pop('template_id', None)
+        return super().update(instance, validated_data)
+
+
+class MatiereSerializer(serializers.ModelSerializer):
+    template = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Matiere
+        fields = ['id', 'nom', 'description', 'template', 'created']
+        read_only_fields = ['id', 'created', 'template']
+
+    def get_template(self, obj):
+        if obj.template:
+            return {'id': str(obj.template.id), 'nom': obj.template.nom}
+        return None
+
+
+class MatiereWriteSerializer(serializers.ModelSerializer):
+    template_id = serializers.UUIDField(required=False, allow_null=True, write_only=True)
+
+    class Meta:
+        model = Matiere
+        fields = ['nom', 'description', 'template_id']
+
+    def validate_template_id(self, value):
+        if not value:
+            return None
+        from apps.services.models import MatiereTemplate
+
+        try:
+            return MatiereTemplate.objects.get(id=value)
+        except MatiereTemplate.DoesNotExist as exc:
+            raise serializers.ValidationError("Template introuvable.") from exc
+
+    def create(self, validated_data):
+        provider = self.context['provider']
+        template = validated_data.pop('template_id', None)
+        return Matiere.objects.create(provider=provider, template=template, **validated_data)
+
+    def update(self, instance, validated_data):
+        validated_data.pop('template_id', None)
+        return super().update(instance, validated_data)
+
+
+class TariffSerializer(serializers.ModelSerializer):
+    article_type = serializers.SerializerMethodField()
+    matiere = serializers.SerializerMethodField()
+    service = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Tariff
+        fields = ['id', 'article_type', 'matiere', 'service', 'prix', 'created', 'updated']
+
+    def get_article_type(self, obj):
+        return {'id': str(obj.article_type.id), 'nom': obj.article_type.nom}
+
+    def get_matiere(self, obj):
+        if obj.matiere:
+            return {'id': str(obj.matiere.id), 'nom': obj.matiere.nom}
+        return None
+
+    def get_service(self, obj):
+        return {'id': str(obj.service.id), 'label': obj.service.label}
+
+
+class TariffWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Tariff
+        fields = ['article_type', 'matiere', 'service', 'prix']
+
+    def validate(self, attrs):
+        provider = self.context['provider']
+        article_type = attrs['article_type']
+        if article_type.provider != provider:
+            raise serializers.ValidationError({'article_type': "Type d'article invalide."})
+        matiere = attrs.get('matiere')
+        if matiere and matiere.provider != provider:
+            raise serializers.ValidationError({'matiere': "Matière invalide."})
+        service = attrs['service']
+        if service.provider and service.provider != provider:
+            raise serializers.ValidationError({'service': "Service invalide pour ce prestataire."})
+        attrs['provider'] = provider
+        return attrs
+

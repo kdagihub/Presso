@@ -20,6 +20,22 @@ from .providers import (
     ProviderStaffInviteSerializer,
     ProviderStaffUpdateSerializer,
     ProviderStaffActivateSerializer,
+    ProviderSettingsSerializer,
+    ProviderSettingsUpdateSerializer,
+    ProviderServiceSerializer,
+    ProviderServiceWriteSerializer,
+    ArticleTypeSerializer,
+    ArticleTypeWriteSerializer,
+    MatiereSerializer,
+    MatiereWriteSerializer,
+    TariffSerializer,
+    TariffWriteSerializer,
+)
+from .orders import (
+    OrderCreateSerializer,
+    OrderSerializer,
+    ProviderOrderStatusSerializer,
+    ProviderOrderAssignSerializer,
 )
 
 __all__ = [
@@ -39,5 +55,19 @@ __all__ = [
     'ProviderStaffInviteSerializer',
     'ProviderStaffUpdateSerializer',
     'ProviderStaffActivateSerializer',
+    'ProviderSettingsSerializer',
+    'ProviderSettingsUpdateSerializer',
+    'ProviderServiceSerializer',
+    'ProviderServiceWriteSerializer',
+    'ArticleTypeSerializer',
+    'ArticleTypeWriteSerializer',
+    'MatiereSerializer',
+    'MatiereWriteSerializer',
+    'TariffSerializer',
+    'TariffWriteSerializer',
+    'OrderCreateSerializer',
+    'OrderSerializer',
+    'ProviderOrderStatusSerializer',
+    'ProviderOrderAssignSerializer',
 ]
 

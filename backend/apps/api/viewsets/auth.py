@@ -34,7 +34,7 @@ from apps.api.serializers.auth import (
     PasswordChangeSerializer,
 )
 from apps.core.audit import write_auth_event
-from apps.core.models import Permission, Role
+from apps.core.models import Permission, Role, ProviderSettings
 from apps.core.services.d7_verify import D7VerifyClient, D7VerifyError
 from apps.core.utils.phone import normalize_to_e164
 from apps.providers.models import Provider, ProviderAgency, ProviderStaff
@@ -355,6 +355,14 @@ def _bootstrap_provider_account(user: User, provider_payload: dict) -> Provider:
     if owner_role and user.custom_role != owner_role:
         user.custom_role = owner_role
         user.save(update_fields=['custom_role'])
+    ProviderSettings.objects.get_or_create(
+        provider=provider,
+        defaults={
+            'business_name': provider.nom_commercial,
+            'notification_email': user.email or '',
+            'notification_phone': provider.user.phone if provider.user else '',
+        },
+    )
     return provider
 
 

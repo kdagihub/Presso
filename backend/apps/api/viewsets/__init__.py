@@ -22,6 +22,25 @@ from .providers import (
     ProviderStaffInviteView,
     ProviderStaffDetailView,
     ProviderStaffActivateView,
+    ProviderSettingsView,
+    ProviderServiceListCreateView,
+    ProviderServiceDetailView,
+    ProviderArticleTypeListCreateView,
+    ProviderArticleTypeDetailView,
+    ProviderMatiereListCreateView,
+    ProviderMatiereDetailView,
+    ProviderTariffListCreateView,
+    ProviderTariffDetailView,
+    CatalogProviderServicesPublicView,
+    CatalogProviderServiceDetailView,
+)
+from .orders import (
+    OrderListCreateView,
+    OrderDetailView,
+    ProviderOrderListView,
+    ProviderOrderDetailView,
+    ProviderOrderStatusUpdateView,
+    ProviderOrderAssignView,
 )
 
 __all__ = [
@@ -43,5 +62,22 @@ __all__ = [
     'ProviderStaffInviteView',
     'ProviderStaffDetailView',
     'ProviderStaffActivateView',
+    'ProviderSettingsView',
+    'ProviderServiceListCreateView',
+    'ProviderServiceDetailView',
+    'ProviderArticleTypeListCreateView',
+    'ProviderArticleTypeDetailView',
+    'ProviderMatiereListCreateView',
+    'ProviderMatiereDetailView',
+    'ProviderTariffListCreateView',
+    'ProviderTariffDetailView',
+    'CatalogProviderServicesPublicView',
+    'CatalogProviderServiceDetailView',
+    'OrderListCreateView',
+    'OrderDetailView',
+    'ProviderOrderListView',
+    'ProviderOrderDetailView',
+    'ProviderOrderStatusUpdateView',
+    'ProviderOrderAssignView',
 ]
 

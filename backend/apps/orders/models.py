@@ -1,7 +1,9 @@
 import uuid
-from django.db import models
-from django.conf import settings
-from apps.providers.models import Provider
+from django.conf import settings  # type: ignore
+from django.db import models  # type: ignore
+from django.utils import timezone  # type: ignore
+
+from apps.providers.models import Provider, ProviderAgency, ProviderStaff
 
 
 class Order(models.Model):
@@ -40,6 +42,24 @@ class Order(models.Model):
         on_delete=models.PROTECT,
         related_name='orders',
         verbose_name="Prestataire"
+    )
+
+    agency = models.ForeignKey(
+        ProviderAgency,
+        on_delete=models.SET_NULL,
+        related_name='orders',
+        null=True,
+        blank=True,
+        verbose_name="Agence assignée"
+    )
+
+    assigned_staff = models.ForeignKey(
+        ProviderStaff,
+        on_delete=models.SET_NULL,
+        related_name='orders',
+        null=True,
+        blank=True,
+        verbose_name="Staff assigné"
     )
     
     # Adresses
@@ -115,6 +135,12 @@ class Order(models.Model):
         default='pending',
         verbose_name="Statut"
     )
+
+    statut_changed_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name="Dernier changement de statut"
+    )
     
     # Montants
     total_estime = models.DecimalField(
@@ -186,7 +212,6 @@ class Order(models.Model):
     def save(self, *args, **kwargs):
         if not self.numero:
             # Générer un numéro de commande automatique
-            from django.utils import timezone
             year = timezone.now().year
             last_order = Order.objects.filter(
                 numero__startswith=f'ORD-{year}-'
@@ -199,5 +224,80 @@ class Order(models.Model):
                 new_num = 1
             
             self.numero = f'ORD-{year}-{new_num:04d}'
+
+        if not self.statut_changed_at:
+            self.statut_changed_at = timezone.now()
         
         super().save(*args, **kwargs)
+
+    def log_status(
+        self,
+        *,
+        event: str = 'status_change',
+        new_status: str,
+        previous_status: str | None = None,
+        comment: str = '',
+        performed_by=None,
+    ) -> 'OrderStatusLog':
+        if previous_status is None:
+            previous_status = self.statut
+        return OrderStatusLog.objects.create(
+            order=self,
+            event=event,
+            previous_status=previous_status,
+            new_status=new_status,
+            comment=comment or '',
+            performed_by=performed_by,
+        )
+
+
+class OrderStatusLog(models.Model):
+    EVENT_CHOICES = [
+        ('creation', 'Création'),
+        ('status_change', 'Changement de statut'),
+        ('assignment', 'Affectation'),
+        ('note', 'Note'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.CASCADE,
+        related_name='status_logs',
+        verbose_name="Commande"
+    )
+    event = models.CharField(max_length=20, choices=EVENT_CHOICES, default='status_change')
+    previous_status = models.CharField(
+        max_length=20,
+        choices=Order.STATUT_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name="Statut précédent",
+    )
+    new_status = models.CharField(
+        max_length=20,
+        choices=Order.STATUT_CHOICES,
+        verbose_name="Nouveau statut",
+    )
+    comment = models.TextField(blank=True, verbose_name="Commentaire")
+    performed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name="Effectué par",
+    )
+    metadata = models.JSONField(default=dict, blank=True, verbose_name="Métadonnées")
+    created = models.DateTimeField(auto_now_add=True, verbose_name="Date de l'action")
+
+    class Meta:
+        verbose_name = "Journal de statut"
+        verbose_name_plural = "Journaux de statut"
+        ordering = ['-created']
+        indexes = [
+            models.Index(fields=['order', 'event']),
+            models.Index(fields=['new_status']),
+        ]
+
+    def __str__(self):
+        return f"{self.order.numero} - {self.get_event_display()} ({self.new_status})"
