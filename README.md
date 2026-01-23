@@ -532,3 +532,34 @@ Propriétaire - **CIACEMS Technologies** © 2025
 ---
 
 🧺 **PRESSO** - La révolution digitale du pressing en Côte d'Ivoire ! 🇨🇮
+
+
+# #####################################
+
+Une fois que le gérant a validé son compte par OTP, il ne peut pas voir de commandes tout de suite car son pressing est "vide" (pas de tarifs, pas d'adresse, pas de visibilité sur l'app client).
+Voici l'étape intermédiaire obligatoire avant le Dashboard opérationnel : Le Setup de Configuration (Onboarding).
+1. L'écran "Bienvenue" (L'état zéro)
+Si c'est sa première connexion, tu ne lui affiches pas un dashboard vide avec des graphiques à 0. Tu lui affiches un parcours guidé (Steppers) pour rendre son pressing "Actif" sur ta plateforme.
+Il doit remplir 3 sections essentielles avant d'accéder au reste :
+Étape 1 : Identité du Pressing : Nom de la boutique, localisation GPS précise (pour les ramassages), et logo/photo de la devanture.
+Étape 2 : Services & Tarifs : Il doit choisir ce qu'il traite (Chemises, Costumes, Draps, Pagnes) et fixer ses prix. Sans prix, le client ne peut pas commander en ligne.
+Étape 3 : Information de Paiement : Où doit-on lui envoyer son argent (Numéro Mobile Money pour le retrait des fonds).
+2. Une fois le Setup terminé : La "Landing Page" du Dashboard
+Une fois qu'il est configuré et qu'il commence à recevoir des commandes, voici ce qu'il doit voir en premier dès qu'il se connecte (sa page d'accueil) :
+L'écran "Aperçu de la Situation" (Overview)
+Le gérant ne veut pas chercher l'information, elle doit lui sauter aux yeux. Cet écran doit afficher 3 zones :
+Le "Status" du Pressing (Toggle Switch) :
+Un gros bouton en haut : [ OUVERT ] ou [ FERMÉ ].
+Si c'est sur "Fermé", son pressing disparaît de l'application client (pratique s'il a une panne de machine ou trop de travail).
+Les Compteurs d'Urgence (Badges de notification) :
+"Nouvelles commandes" (Celles qu'il n'a pas encore acceptées).
+"Ramassages du jour" (Ce que le livreur doit aller chercher).
+"Retards" (Linge qui aurait dû être livré mais qui ne l'est pas encore).
+Le Flux d'Activité Récent :
+Une liste chronologique des 5 dernières actions (ex: "Commande #452 payée par le client", "Livreur en route pour la commande #450").
+Pourquoi ne pas afficher "La liste des commandes" directement ?
+Parce que dans une marketplace, l'action la plus importante est l'acceptation des nouvelles demandes. Si tu affiches directement toute la liste (anciennes et nouvelles), il risque de rater une nouvelle commande urgente au milieu des autres.
+Résumé de ce qu'il voit en arrivant (Dashboard Home) :
+Son état de disponibilité (Ouvert/Fermé).
+Son solde d'argent disponible (pour le motiver).
+Les actions immédiates à faire (Nouvelles commandes à accepter).

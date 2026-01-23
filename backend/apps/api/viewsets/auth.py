@@ -367,6 +367,7 @@ def _bootstrap_provider_account(user: User, provider_payload: dict) -> Provider:
 
 
 class RegisterClientView(APIView):
+    authentication_classes = []  # Pas d'auth requise, évite CSRF
     permission_classes = [permissions.AllowAny]
     throttle_scope = 'otp_request'
 
@@ -417,6 +418,7 @@ class RegisterClientView(APIView):
 
 
 class RegisterProviderView(APIView):
+    authentication_classes = []  # Pas d'auth requise, évite CSRF
     permission_classes = [permissions.AllowAny]
     throttle_scope = 'otp_request'
 
@@ -478,6 +480,7 @@ class RegisterProviderView(APIView):
 
 
 class OTPRequestView(APIView):
+    authentication_classes = []  # Pas d'auth requise, évite CSRF
     permission_classes = [permissions.AllowAny]
     throttle_scope = 'otp_request'
 
@@ -504,6 +507,7 @@ class OTPRequestView(APIView):
 
 
 class OTPVerifyView(APIView):
+    authentication_classes = []  # Pas d'auth requise, évite CSRF
     permission_classes = [permissions.AllowAny]
     throttle_scope = 'otp_verify'
 
@@ -563,6 +567,7 @@ class OTPVerifyView(APIView):
 
 
 class LoginView(APIView):
+    authentication_classes = []  # Pas d'auth requise, évite CSRF
     permission_classes = [permissions.AllowAny]
     throttle_scope = 'auth_login'
 
@@ -644,6 +649,7 @@ class LogoutView(APIView):
 
 
 class PasswordResetRequestView(APIView):
+    authentication_classes = []  # Pas d'auth requise, évite CSRF
     permission_classes = [permissions.AllowAny]
     throttle_scope = 'password_reset_request'
 
@@ -677,6 +683,7 @@ class PasswordResetRequestView(APIView):
 
 
 class PasswordResetVerifyView(APIView):
+    authentication_classes = []  # Pas d'auth requise, évite CSRF
     permission_classes = [permissions.AllowAny]
     throttle_scope = 'password_reset_verify'
 
@@ -713,6 +720,7 @@ class PasswordResetVerifyView(APIView):
 
 
 class PasswordResetFinalizeView(APIView):
+    authentication_classes = []  # Pas d'auth requise, évite CSRF
     permission_classes = [permissions.AllowAny]
     throttle_scope = 'password_reset_finalize'
 

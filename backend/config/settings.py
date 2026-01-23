@@ -325,7 +325,7 @@ SPECTACULAR_SETTINGS = {
     
     'CONTACT': {
         'name': 'CIACEMS Technologies',
-        'email': 'contact@presso.ci',
+        'email': 'contact@pressow.com',
     },
     
     'LICENSE': {
@@ -349,7 +349,10 @@ SPECTACULAR_SETTINGS = {
 CORS_ALLOW_ALL_ORIGINS = DEBUG
 
 # En production : spécifier les origins autorisés
-CORS_ALLOWED_ORIGINS_STR = os.getenv('CORS_ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:8080,http://localhost:5173')
+CORS_ALLOWED_ORIGINS_STR = os.getenv(
+    'CORS_ALLOWED_ORIGINS',
+    'http://localhost:3000,http://localhost:8080,http://localhost:5173,https://pressow.com'
+)
 CORS_ALLOWED_ORIGINS = [origin.strip() for origin in CORS_ALLOWED_ORIGINS_STR.split(',') if origin.strip()]
 
 CORS_ALLOW_CREDENTIALS = os.getenv('CORS_ALLOW_CREDENTIALS', 'True') == 'True'

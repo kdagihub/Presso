@@ -21,7 +21,7 @@ class D7VerifyClient:
     def __init__(self) -> None:
         self.base_url = getattr(settings, 'D7_API_BASE_URL', 'https://api.d7networks.com').rstrip('/')
         self.api_token = getattr(settings, 'D7_API_TOKEN', '')
-        self.originator = getattr(settings, 'D7_ORIGINATOR', 'PressowOTP')
+        self.originator = getattr(settings, 'D7_ORIGINATOR', 'Pressow-OTP')
         self.timeout = getattr(settings, 'D7_TIMEOUT_SECONDS', 20)
 
     def _headers(self) -> dict:
@@ -52,7 +52,7 @@ class D7VerifyClient:
         if template_id:
             payload['template_id'] = template_id
         else:
-            payload['content'] = content or 'Votre code de vérification Presso est: {}'
+            payload['content'] = content or 'Votre code de vérification Pressow est: {}'
         return self._post(url, payload, 'send_otp')
 
     def resend_otp(self, otp_id: str) -> dict:
