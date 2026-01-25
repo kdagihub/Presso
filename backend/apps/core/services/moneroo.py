@@ -347,6 +347,16 @@ class MonerooService:
                 order.save()
                 
                 logger.info(f"Paiement confirmé pour commande {order.numero}")
+                
+                # ═══════════════════════════════════════════════════════════════
+                # NOTIFICATION : Paiement reçu pour le prestataire
+                # ═══════════════════════════════════════════════════════════════
+                try:
+                    from apps.core.services.notification_dispatcher import notification_dispatcher
+                    notification_dispatcher.notify_provider_payment_received(order)
+                except Exception as e:
+                    logger.error(f"Erreur envoi notification paiement: {e}")
+                
                 return {'handled': True, 'order': order.numero}
             except Order.DoesNotExist:
                 logger.error(f"Commande {order_id} introuvable")

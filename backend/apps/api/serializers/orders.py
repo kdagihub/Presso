@@ -19,20 +19,40 @@ class OrderItemInputSerializer(serializers.Serializer):
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
+    # Objets complets (pour compatibilité)
     article_type = serializers.SerializerMethodField()
     matiere = serializers.SerializerMethodField()
     service = serializers.SerializerMethodField()
+    
+    # Noms directs (pour le frontend)
+    service_name = serializers.SerializerMethodField()
+    article_type_name = serializers.SerializerMethodField()
+    matiere_name = serializers.SerializerMethodField()
+    
+    # Aliases pour le frontend
+    quantity = serializers.DecimalField(source='quantite', max_digits=8, decimal_places=2, read_only=True)
+    unit_price = serializers.DecimalField(source='prix_unitaire', max_digits=10, decimal_places=2, read_only=True)
+    total_price = serializers.DecimalField(source='total_ligne', max_digits=10, decimal_places=2, read_only=True)
 
     class Meta:
         model = OrderItem
         fields = [
             'id',
+            # Objets complets
             'article_type',
             'matiere',
             'service',
+            # Noms directs (frontend)
+            'service_name',
+            'article_type_name',
+            'matiere_name',
+            # Quantités et prix (aliases + originaux)
             'quantite',
+            'quantity',
             'prix_unitaire',
+            'unit_price',
             'total_ligne',
+            'total_price',
             'notes',
             'created',
         ]
@@ -48,6 +68,15 @@ class OrderItemSerializer(serializers.ModelSerializer):
     def get_service(self, obj):
         return {'id': str(obj.service.id), 'label': obj.service.label, 'mode_tarif': obj.service.mode_tarif}
 
+    def get_service_name(self, obj) -> str:
+        return obj.service.label if obj.service else ''
+
+    def get_article_type_name(self, obj) -> str:
+        return obj.article_type.nom if obj.article_type else ''
+
+    def get_matiere_name(self, obj):
+        return obj.matiere.nom if obj.matiere else None
+
 
 class OrderSerializer(serializers.ModelSerializer):
     provider = serializers.SerializerMethodField()
@@ -56,29 +85,116 @@ class OrderSerializer(serializers.ModelSerializer):
     agency = serializers.SerializerMethodField()
     assigned_staff = serializers.SerializerMethodField()
     logs = serializers.SerializerMethodField()
+    
+    # Champs display pour le frontend
+    statut_display = serializers.SerializerMethodField()
+    payment_status_display = serializers.SerializerMethodField()
+    payout_status_display = serializers.SerializerMethodField()
+    
+    # Champs OTP
+    has_delivery_otp = serializers.SerializerMethodField()
+    is_delivery_validated = serializers.SerializerMethodField()
+    
+    # Champs vérification à la collecte
+    counting_mode_display = serializers.SerializerMethodField()
+    verification_status = serializers.SerializerMethodField()
+    has_adjustment = serializers.SerializerMethodField()
+    
+    # Champs réclamation client
+    claim_status_display = serializers.SerializerMethodField()
+    claim_reason_display = serializers.SerializerMethodField()
+    claim_info = serializers.SerializerMethodField()
 
     class Meta:
         model = Order
         fields = [
             'id',
             'numero',
+            # Statut
             'statut',
+            'statut_display',
             'statut_changed_at',
+            # Mode de comptage
+            'counting_mode',
+            'counting_mode_display',
+            # Relations
             'client',
             'provider',
             'agency',
             'assigned_staff',
+            # Adresses
             'adresse_collecte',
+            'latitude_collecte',
+            'longitude_collecte',
             'adresse_livraison',
+            'latitude_livraison',
+            'longitude_livraison',
+            # Créneaux
             'creneau_collecte',
             'creneau_livraison',
+            # Dates réelles
+            'date_collecte',
+            'date_livraison',
+            # Montants
             'total_estime',
             'total_final',
             'frais_livraison',
+            # Quantités estimées / vérifiées
+            'estimated_weight',
+            'estimated_pieces',
+            'verified_weight',
+            'verified_pieces',
+            'quantity_verified_at',
+            'verification_status',
+            # Ajustement paiement
+            'initial_amount_paid',
+            'adjustment_amount',
+            'adjustment_deadline',
+            'adjustment_paid_at',
+            'credit_issued',
+            'client_accepted_reduction',
+            'has_adjustment',
+            # Paiement
+            'payment_status',
+            'payment_status_display',
+            'payment_method',
+            'paid_at',
+            # Commission et montants calculés
+            'commission_percent',
+            'commission_amount',
+            'payout_fee',
+            'provider_net_amount',
+            # OTP Livraison
+            'has_delivery_otp',
+            'delivery_otp_generated_at',
+            'delivery_otp_validated_at',
+            'is_delivery_validated',
+            # Payout
+            'payout_status',
+            'payout_status_display',
+            'payout_scheduled_at',
+            'payout_completed_at',
+            # Annulation
+            'cancellation_reason',
+            'cancellation_notes',
+            'cancelled_at',
+            # Réclamation client
+            'claim_deadline',
+            'claim_status',
+            'claim_status_display',
+            'claim_reason',
+            'claim_reason_display',
+            'claim_details',
+            'claim_submitted_at',
+            'claim_resolved_at',
+            'claim_info',
+            # Notes
             'notes_client',
             'notes_provider',
+            # Timestamps
             'created',
             'updated',
+            # Relations
             'items',
             'logs',
         ]
@@ -122,6 +238,86 @@ class OrderSerializer(serializers.ModelSerializer):
             return None
         logs = OrderStatusLogSerializer(obj.status_logs.all(), many=True)
         return logs.data
+
+    def get_statut_display(self, obj) -> str:
+        """Retourne le libellé du statut en français"""
+        return obj.get_statut_display()
+
+    def get_payment_status_display(self, obj) -> str:
+        """Retourne le libellé du statut de paiement en français"""
+        return obj.get_payment_status_display()
+
+    def get_payout_status_display(self, obj) -> str:
+        """Retourne le libellé du statut de payout en français"""
+        return obj.get_payout_status_display()
+
+    def get_has_delivery_otp(self, obj) -> bool:
+        """Indique si un OTP de livraison a été généré"""
+        return bool(obj.delivery_otp)
+
+    def get_is_delivery_validated(self, obj) -> bool:
+        """Indique si la livraison a été validée par OTP"""
+        return obj.delivery_otp_validated_at is not None
+    
+    def get_counting_mode_display(self, obj) -> str:
+        """Retourne le libellé du mode de comptage"""
+        return obj.get_counting_mode_display()
+    
+    def get_verification_status(self, obj) -> dict:
+        """Retourne l'état de la vérification à la collecte"""
+        return {
+            'verified': obj.quantity_verified_at is not None,
+            'verified_at': obj.quantity_verified_at,
+            'estimated': {
+                'weight': obj.estimated_weight,
+                'pieces': obj.estimated_pieces,
+            },
+            'verified_values': {
+                'weight': obj.verified_weight,
+                'pieces': obj.verified_pieces,
+            },
+            'has_discrepancy': (
+                obj.adjustment_amount is not None and 
+                obj.adjustment_amount != 0
+            ),
+        }
+    
+    def get_has_adjustment(self, obj) -> bool:
+        """Indique si un ajustement de paiement est requis ou a été effectué"""
+        return obj.adjustment_amount is not None and obj.adjustment_amount != 0
+    
+    def get_claim_status_display(self, obj) -> str:
+        """Retourne le libellé du statut de réclamation"""
+        return obj.get_claim_status_display()
+    
+    def get_claim_reason_display(self, obj) -> str:
+        """Retourne le libellé de la raison de réclamation"""
+        if obj.claim_reason:
+            return obj.get_claim_reason_display()
+        return None
+    
+    def get_claim_info(self, obj) -> dict:
+        """Retourne les informations complètes sur la réclamation"""
+        # Vérifier si le client peut encore soumettre une réclamation
+        can_submit, reason = obj.can_submit_claim()
+        remaining_time = obj.get_claim_remaining_time()
+        
+        return {
+            'can_submit_claim': can_submit,
+            'submit_reason': reason if not can_submit else None,
+            'remaining_time': remaining_time,
+            'has_claim': obj.claim_status != 'none',
+            'claim': {
+                'status': obj.claim_status,
+                'status_display': obj.get_claim_status_display(),
+                'reason': obj.claim_reason,
+                'reason_display': obj.get_claim_reason_display() if obj.claim_reason else None,
+                'details': obj.claim_details,
+                'photos': obj.claim_photos,
+                'submitted_at': obj.claim_submitted_at,
+                'resolved_at': obj.claim_resolved_at,
+            } if obj.claim_status != 'none' else None,
+        }
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
@@ -278,6 +474,17 @@ class OrderCreateSerializer(serializers.Serializer):
                 comment="Agence sélectionnée par le client",
                 performed_by=client,
             )
+        
+        # ═══════════════════════════════════════════════════════════════════
+        # NOTIFICATION : Nouvelle commande pour le prestataire
+        # ═══════════════════════════════════════════════════════════════════
+        try:
+            from apps.core.services.notification_dispatcher import notification_dispatcher
+            notification_dispatcher.notify_provider_new_order(order)
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).error(f"Erreur envoi notification nouvelle commande: {e}")
+        
         return order
 
 
@@ -350,3 +557,71 @@ class ProviderOrderAssignSerializer(serializers.Serializer):
         attrs['set_agency'] = set_agency
         attrs['set_staff'] = set_staff
         return attrs
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# VÉRIFICATION À LA COLLECTE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class CollectorVerifyQuantitySerializer(serializers.Serializer):
+    """
+    Serializer pour la vérification de quantité par le livreur.
+    """
+    verified_weight = serializers.DecimalField(
+        max_digits=8,
+        decimal_places=2,
+        required=False,
+        allow_null=True,
+        help_text="Poids réel constaté en kg"
+    )
+    verified_pieces = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        help_text="Nombre de pièces réel constaté"
+    )
+    notes = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Notes du livreur sur la vérification"
+    )
+    timeout_minutes = serializers.IntegerField(
+        required=False,
+        default=10,
+        min_value=5,
+        max_value=60,
+        help_text="Délai accordé au client pour répondre (minutes)"
+    )
+    
+    def validate(self, attrs):
+        verified_weight = attrs.get('verified_weight')
+        verified_pieces = attrs.get('verified_pieces')
+        
+        if verified_weight is None and verified_pieces is None:
+            raise serializers.ValidationError(
+                "Vous devez fournir soit le poids vérifié (verified_weight), "
+                "soit le nombre de pièces vérifié (verified_pieces)."
+            )
+        
+        if verified_weight is not None and verified_pieces is not None:
+            raise serializers.ValidationError(
+                "Fournissez uniquement l'un des deux : poids OU nombre de pièces, pas les deux."
+            )
+        
+        return attrs
+
+
+class ClientAdjustmentResponseSerializer(serializers.Serializer):
+    """
+    Serializer pour la réponse du client à l'ajustement.
+    """
+    payment_method = serializers.ChoiceField(
+        choices=[
+            ('orange_money', 'Orange Money'),
+            ('mtn_momo', 'MTN Mobile Money'),
+            ('moov_money', 'Moov Money'),
+            ('wave', 'Wave'),
+        ],
+        required=False,
+        help_text="Méthode de paiement pour le complément"
+    )

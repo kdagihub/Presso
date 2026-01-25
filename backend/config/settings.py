@@ -300,7 +300,9 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=JWT_ACCESS_TOKEN_LIFETIME_MINUTES),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=JWT_REFRESH_TOKEN_LIFETIME_DAYS),
     'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,
+    # BLACKLIST désactivé - cause des problèmes de déconnexion lors du refresh de page
+    # Les tokens expireront naturellement après REFRESH_TOKEN_LIFETIME (7 jours)
+    'BLACKLIST_AFTER_ROTATION': False,
     'UPDATE_LAST_LOGIN': True,
     
     'ALGORITHM': 'HS256',
@@ -538,10 +540,28 @@ CHANNEL_LAYERS = {
 # =============================================================================
 # FIREBASE CLOUD MESSAGING (Push Notifications)
 # =============================================================================
+# Configuration pour les notifications push via Firebase Cloud Messaging (FCM)
+# 
+# Pour configurer FCM:
+# 1. Créer un projet sur https://console.firebase.google.com
+# 2. Aller dans Paramètres > Comptes de service
+# 3. Générer une nouvelle clé privée (fichier JSON)
+# 4. Placer le fichier dans backend/config/ et configurer FCM_CREDENTIALS_PATH
+#
+# Le fichier JSON contient les credentials du service account Firebase Admin SDK
 
-FCM_SERVER_KEY = os.getenv('FCM_SERVER_KEY', '')
-FCM_CREDENTIALS_PATH = os.getenv('FCM_CREDENTIALS_PATH', '')  # Chemin vers firebase-adminsdk.json
-FCM_PROJECT_ID = os.getenv('FCM_PROJECT_ID', '')
+FCM_CREDENTIALS_PATH = os.getenv(
+    'FCM_CREDENTIALS_PATH', 
+    str(BASE_DIR / 'config' / 'pressow-42706-firebase-adminsdk-fbsvc-aa1d0b7787.json')
+)
+FCM_PROJECT_ID = os.getenv('FCM_PROJECT_ID', 'pressow-42706')
+
+# Clé VAPID pour les notifications Web Push (utilisée côté frontend Vue.js)
+# Obtenue dans Firebase Console > Cloud Messaging > Configuration Web
+FCM_VAPID_KEY = os.getenv(
+    'FCM_VAPID_KEY',
+    'BIjqfwstFwVV4WvienVdTM-1RoByeMGro8AJD8Sq932KfFqRR4CL3VeKmXxdsYGet8Ng9Ig_8iAmmMzaJ5JN0Y4'
+)
 
 # =============================================================================
 # NOTIFICATIONS CONFIGURATION
@@ -551,8 +571,8 @@ FCM_PROJECT_ID = os.getenv('FCM_PROJECT_ID', '')
 NOTIFICATION_CHANNELS = {
     'websocket': os.getenv('NOTIFICATION_WEBSOCKET_ENABLED', 'True') == 'True',
     'push': os.getenv('NOTIFICATION_PUSH_ENABLED', 'True') == 'True',
-    'sms': os.getenv('NOTIFICATION_SMS_ENABLED', 'True') == 'True',
-    'email': os.getenv('NOTIFICATION_EMAIL_ENABLED', 'False') == 'True',
+    'sms': os.getenv('NOTIFICATION_SMS_ENABLED', 'False') == 'True',  # SMS désactivé par défaut (coûteux)
+    'email': os.getenv('NOTIFICATION_EMAIL_ENABLED', 'True') == 'True',  # Email activé par défaut
 }
 
 # Types de notifications

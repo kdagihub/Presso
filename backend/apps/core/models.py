@@ -796,6 +796,275 @@ class PayoutRequest(models.Model):
         self.save(update_fields=['status', 'error_message', 'retry_count', 'updated'])
 
 
+# =============================================================================
+# PORTEFEUILLE CLIENT (Crédits / Remboursements)
+# =============================================================================
+
+class ClientWallet(models.Model):
+    """
+    Portefeuille virtuel du client.
+    Gère les crédits (remboursements, trop-perçus).
+    Le client peut utiliser son crédit pour payer ses commandes.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='wallet',
+        verbose_name="Client"
+    )
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # SOLDES
+    # ═══════════════════════════════════════════════════════════════════
+    
+    balance = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        verbose_name="Solde disponible (FCFA)",
+        help_text="Montant utilisable pour payer des commandes"
+    )
+    
+    total_credited = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        verbose_name="Total crédité (FCFA)",
+        help_text="Total des crédits reçus (remboursements, trop-perçus)"
+    )
+    
+    total_used = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=Decimal('0.00'),
+        verbose_name="Total utilisé (FCFA)",
+        help_text="Total des crédits utilisés pour payer des commandes"
+    )
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # MÉTADONNÉES
+    # ═══════════════════════════════════════════════════════════════════
+    
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name="Wallet actif"
+    )
+    
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Métadonnées"
+    )
+    
+    created = models.DateTimeField(auto_now_add=True, verbose_name="Date de création")
+    updated = models.DateTimeField(auto_now=True, verbose_name="Dernière modification")
+    
+    class Meta:
+        verbose_name = "Portefeuille client"
+        verbose_name_plural = "Portefeuilles clients"
+        indexes = [
+            models.Index(fields=['user']),
+            models.Index(fields=['balance']),
+        ]
+    
+    def __str__(self):
+        return f"Wallet Client - {self.user.get_full_name() or self.user.phone} ({self.balance} FCFA)"
+    
+    def credit(
+        self,
+        amount: Decimal,
+        transaction_type: str,
+        order=None,
+        description: str = '',
+        reference: str = '',
+        metadata: dict = None
+    ) -> 'ClientWalletTransaction':
+        """
+        Crédite le wallet client (ajoute des fonds).
+        Utilisé pour les remboursements et trop-perçus.
+        """
+        with transaction.atomic():
+            self.balance += amount
+            self.total_credited += amount
+            self.save(update_fields=['balance', 'total_credited', 'updated'])
+            
+            return ClientWalletTransaction.objects.create(
+                wallet=self,
+                transaction_type=transaction_type,
+                direction='credit',
+                amount=amount,
+                balance_after=self.balance,
+                order=order,
+                description=description,
+                reference=reference or f'CL-CR-{timezone.now().strftime("%Y%m%d%H%M%S")}',
+                metadata=metadata or {}
+            )
+    
+    def debit(
+        self,
+        amount: Decimal,
+        transaction_type: str,
+        order=None,
+        description: str = '',
+        reference: str = '',
+        metadata: dict = None
+    ) -> 'ClientWalletTransaction':
+        """
+        Débite le wallet client (utilise des fonds).
+        Utilisé quand le client paie avec son crédit.
+        """
+        if amount > self.balance:
+            raise ValueError(f"Solde insuffisant. Disponible: {self.balance}, Demandé: {amount}")
+        
+        with transaction.atomic():
+            self.balance -= amount
+            self.total_used += amount
+            self.save(update_fields=['balance', 'total_used', 'updated'])
+            
+            return ClientWalletTransaction.objects.create(
+                wallet=self,
+                transaction_type=transaction_type,
+                direction='debit',
+                amount=amount,
+                balance_after=self.balance,
+                order=order,
+                description=description,
+                reference=reference or f'CL-DB-{timezone.now().strftime("%Y%m%d%H%M%S")}',
+                metadata=metadata or {}
+            )
+    
+    @classmethod
+    def get_or_create_for_user(cls, user) -> 'ClientWallet':
+        """Récupère ou crée le wallet pour un utilisateur"""
+        wallet, _ = cls.objects.get_or_create(user=user)
+        return wallet
+
+
+class ClientWalletTransaction(models.Model):
+    """
+    Historique des transactions du portefeuille client.
+    Trace chaque mouvement d'argent (crédit/débit).
+    """
+    TRANSACTION_TYPES = [
+        ('refund', 'Remboursement commande'),
+        ('overpayment', 'Trop-perçu (livreur a constaté moins)'),
+        ('payment', 'Paiement avec crédit'),
+        ('adjustment', 'Ajustement manuel'),
+        ('promo', 'Crédit promotionnel'),
+    ]
+    
+    DIRECTION_CHOICES = [
+        ('credit', 'Crédit (+)'),
+        ('debit', 'Débit (-)'),
+    ]
+    
+    STATUS_CHOICES = [
+        ('pending', 'En attente'),
+        ('completed', 'Complété'),
+        ('failed', 'Échoué'),
+        ('cancelled', 'Annulé'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    wallet = models.ForeignKey(
+        ClientWallet,
+        on_delete=models.CASCADE,
+        related_name='transactions',
+        verbose_name="Portefeuille"
+    )
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # DÉTAILS DE LA TRANSACTION
+    # ═══════════════════════════════════════════════════════════════════
+    
+    transaction_type = models.CharField(
+        max_length=20,
+        choices=TRANSACTION_TYPES,
+        verbose_name="Type de transaction"
+    )
+    
+    direction = models.CharField(
+        max_length=10,
+        choices=DIRECTION_CHOICES,
+        verbose_name="Direction"
+    )
+    
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        verbose_name="Montant (FCFA)"
+    )
+    
+    balance_after = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        verbose_name="Solde après transaction"
+    )
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # RÉFÉRENCES
+    # ═══════════════════════════════════════════════════════════════════
+    
+    order = models.ForeignKey(
+        'orders.Order',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='client_wallet_transactions',
+        verbose_name="Commande liée"
+    )
+    
+    reference = models.CharField(
+        max_length=100,
+        unique=True,
+        verbose_name="Référence",
+        help_text="Référence unique de la transaction"
+    )
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # STATUT & DESCRIPTION
+    # ═══════════════════════════════════════════════════════════════════
+    
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='completed',
+        verbose_name="Statut"
+    )
+    
+    description = models.CharField(
+        max_length=500,
+        blank=True,
+        verbose_name="Description"
+    )
+    
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Métadonnées"
+    )
+    
+    created = models.DateTimeField(auto_now_add=True, verbose_name="Date de création")
+    
+    class Meta:
+        verbose_name = "Transaction wallet client"
+        verbose_name_plural = "Transactions wallet client"
+        ordering = ['-created']
+        indexes = [
+            models.Index(fields=['wallet', 'transaction_type']),
+            models.Index(fields=['wallet', 'created']),
+            models.Index(fields=['reference']),
+            models.Index(fields=['order']),
+        ]
+    
+    def __str__(self):
+        sign = '+' if self.direction == 'credit' else '-'
+        return f"{sign}{self.amount} FCFA - {self.get_transaction_type_display()} ({self.reference})"
+
+
 class Permission(models.Model):
     """
     Permissions granulaires pour le système multitenant
@@ -1041,8 +1310,14 @@ class ProviderSettings(models.Model):
     )
     
     # ═══════════════════════════════════════════════════════════════════
-    # NOTIFICATIONS
+    # NOTIFICATIONS - Canaux
     # ═══════════════════════════════════════════════════════════════════
+    
+    push_notifications = models.BooleanField(
+        default=True,
+        verbose_name="Notifications push",
+        help_text="Notifications sur l'appareil (navigateur/mobile)"
+    )
     
     email_notifications = models.BooleanField(
         default=True,
@@ -1051,18 +1326,95 @@ class ProviderSettings(models.Model):
     
     sms_notifications = models.BooleanField(
         default=False,
-        verbose_name="Notifications par SMS"
+        verbose_name="Notifications par SMS",
+        help_text="SMS facturés, à activer avec précaution"
     )
     
     notification_email = models.EmailField(
         blank=True,
-        verbose_name="Email de notification"
+        verbose_name="Email de notification",
+        help_text="Si vide, utilise l'email du compte"
     )
     
     notification_phone = models.CharField(
         max_length=15,
         blank=True,
-        verbose_name="Téléphone de notification"
+        verbose_name="Téléphone de notification",
+        help_text="Si vide, utilise le téléphone du compte"
+    )
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # NOTIFICATIONS - Types (quels événements notifier)
+    # ═══════════════════════════════════════════════════════════════════
+    
+    notify_new_orders = models.BooleanField(
+        default=True,
+        verbose_name="Nouvelles commandes",
+        help_text="Notification à chaque nouvelle commande"
+    )
+    
+    notify_order_updates = models.BooleanField(
+        default=True,
+        verbose_name="Mises à jour commandes",
+        help_text="Annulations, modifications de commandes"
+    )
+    
+    notify_payments = models.BooleanField(
+        default=True,
+        verbose_name="Paiements reçus",
+        help_text="Notification quand un paiement est confirmé"
+    )
+    
+    notify_reminders = models.BooleanField(
+        default=True,
+        verbose_name="Rappels",
+        help_text="Rappels pour commandes en attente"
+    )
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # DISPONIBILITÉ AVANCÉE
+    # ═══════════════════════════════════════════════════════════════════
+    
+    pause_mode = models.BooleanField(
+        default=False,
+        verbose_name="Mode pause",
+        help_text="Mettre temporairement le pressing en pause (n'accepte plus de commandes)"
+    )
+    
+    pause_reason = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Raison de la pause",
+        help_text="Ex: Vacances, Maintenance, etc."
+    )
+    
+    max_orders_per_day = models.PositiveIntegerField(
+        default=0,
+        verbose_name="Max commandes par jour",
+        help_text="0 = illimité"
+    )
+    
+    working_days = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="Jours de travail",
+        help_text="Liste des jours: ['monday', 'tuesday', ...]"
+    )
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # SÉCURITÉ
+    # ═══════════════════════════════════════════════════════════════════
+    
+    two_factor_auth = models.BooleanField(
+        default=False,
+        verbose_name="Authentification à deux facteurs",
+        help_text="Double vérification lors de la connexion"
+    )
+    
+    login_alerts = models.BooleanField(
+        default=True,
+        verbose_name="Alertes de connexion",
+        help_text="Notification en cas de nouvelle connexion"
     )
     
     # ═══════════════════════════════════════════════════════════════════

@@ -213,3 +213,271 @@ class User(AbstractUser):
         
         distance = self.location.distance(provider.location) * 100  # Convertir en km
         return round(distance, 2)
+
+
+# =============================================================================
+# TOKENS FCM (Push Notifications)
+# =============================================================================
+
+class UserFCMToken(models.Model):
+    """
+    Stocke les tokens FCM (Firebase Cloud Messaging) des utilisateurs.
+    Un utilisateur peut avoir plusieurs tokens (un par device/navigateur).
+    
+    Utilisé pour envoyer des notifications push sur :
+    - Web (Vue.js via Service Worker)
+    - Mobile (Flutter Android/iOS)
+    """
+    DEVICE_TYPE_CHOICES = [
+        ('web', 'Navigateur Web'),
+        ('android', 'Android'),
+        ('ios', 'iOS'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='fcm_tokens',
+        verbose_name="Utilisateur"
+    )
+    
+    token = models.CharField(
+        max_length=500,
+        unique=True,
+        verbose_name="Token FCM",
+        help_text="Token unique généré par Firebase pour ce device"
+    )
+    
+    device_type = models.CharField(
+        max_length=20,
+        choices=DEVICE_TYPE_CHOICES,
+        default='web',
+        verbose_name="Type de device"
+    )
+    
+    device_name = models.CharField(
+        max_length=200,
+        blank=True,
+        verbose_name="Nom du device",
+        help_text="Ex: Chrome sur Windows, iPhone 15, Samsung Galaxy S24"
+    )
+    
+    device_info = models.JSONField(
+        default=dict,
+        blank=True,
+        verbose_name="Informations device",
+        help_text="User-Agent, OS, version navigateur, etc."
+    )
+    
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name="Actif",
+        help_text="False si le token est invalide ou révoqué"
+    )
+    
+    last_used_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name="Dernière utilisation",
+        help_text="Dernière notification envoyée avec succès"
+    )
+    
+    created = models.DateTimeField(auto_now_add=True, verbose_name="Date d'enregistrement")
+    updated = models.DateTimeField(auto_now=True, verbose_name="Dernière modification")
+    
+    class Meta:
+        verbose_name = "Token FCM"
+        verbose_name_plural = "Tokens FCM"
+        ordering = ['-created']
+        indexes = [
+            models.Index(fields=['user', 'is_active']),
+            models.Index(fields=['token']),
+            models.Index(fields=['device_type']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.username} - {self.get_device_type_display()} ({self.device_name or 'Sans nom'})"
+    
+    def mark_used(self):
+        """Met à jour la date de dernière utilisation"""
+        from django.utils import timezone
+        self.last_used_at = timezone.now()
+        self.save(update_fields=['last_used_at', 'updated'])
+    
+    def deactivate(self):
+        """Désactive le token (ex: si Firebase le rejette)"""
+        self.is_active = False
+        self.save(update_fields=['is_active', 'updated'])
+    
+    @classmethod
+    def get_active_tokens_for_user(cls, user_id: str) -> list:
+        """Retourne tous les tokens actifs d'un utilisateur"""
+        return list(
+            cls.objects.filter(user_id=user_id, is_active=True)
+            .values_list('token', flat=True)
+        )
+    
+    @classmethod
+    def register_token(
+        cls,
+        user,
+        token: str,
+        device_type: str = 'web',
+        device_name: str = '',
+        device_info: dict = None
+    ) -> 'UserFCMToken':
+        """
+        Enregistre ou met à jour un token FCM.
+        Si le token existe déjà pour un autre user, il est transféré.
+        """
+        # Vérifier si le token existe déjà
+        existing = cls.objects.filter(token=token).first()
+        
+        if existing:
+            # Token existe - le mettre à jour et l'activer
+            existing.user = user
+            existing.device_type = device_type
+            existing.device_name = device_name
+            existing.device_info = device_info or {}
+            existing.is_active = True
+            existing.save()
+            return existing
+        
+        # Nouveau token
+        return cls.objects.create(
+            user=user,
+            token=token,
+            device_type=device_type,
+            device_name=device_name,
+            device_info=device_info or {}
+        )
+
+
+# =============================================================================
+# PRÉFÉRENCES DE NOTIFICATION (CLIENTS)
+# =============================================================================
+
+class UserNotificationPreferences(models.Model):
+    """
+    Préférences de notification pour les utilisateurs (clients).
+    Les prestataires utilisent ProviderSettings.
+    
+    Créé automatiquement à l'inscription du client.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='notification_preferences',
+        verbose_name="Utilisateur"
+    )
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # CANAUX DE NOTIFICATION
+    # ═══════════════════════════════════════════════════════════════════
+    
+    push_enabled = models.BooleanField(
+        default=True,
+        verbose_name="Notifications push",
+        help_text="Notifications sur l'appareil"
+    )
+    
+    email_enabled = models.BooleanField(
+        default=True,
+        verbose_name="Notifications email"
+    )
+    
+    sms_enabled = models.BooleanField(
+        default=False,
+        verbose_name="Notifications SMS",
+        help_text="SMS pour événements critiques uniquement"
+    )
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # TYPES DE NOTIFICATIONS
+    # ═══════════════════════════════════════════════════════════════════
+    
+    notify_order_confirmations = models.BooleanField(
+        default=True,
+        verbose_name="Confirmations de commande",
+        help_text="Quand une commande est passée"
+    )
+    
+    notify_order_updates = models.BooleanField(
+        default=True,
+        verbose_name="Mises à jour commandes",
+        help_text="Changements de statut"
+    )
+    
+    notify_delivery = models.BooleanField(
+        default=True,
+        verbose_name="Livraisons",
+        help_text="Notifications de livraison et OTP"
+    )
+    
+    notify_payments = models.BooleanField(
+        default=True,
+        verbose_name="Paiements",
+        help_text="Confirmations de paiement"
+    )
+    
+    notify_promotions = models.BooleanField(
+        default=False,
+        verbose_name="Promotions",
+        help_text="Offres et promotions (optionnel)"
+    )
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # MÉTADONNÉES
+    # ═══════════════════════════════════════════════════════════════════
+    
+    created = models.DateTimeField(auto_now_add=True, verbose_name="Date de création")
+    updated = models.DateTimeField(auto_now=True, verbose_name="Dernière modification")
+    
+    class Meta:
+        verbose_name = "Préférences de notification"
+        verbose_name_plural = "Préférences de notification"
+    
+    def __str__(self):
+        return f"Préférences notification - {self.user.username}"
+    
+    @classmethod
+    def get_or_create_for_user(cls, user) -> 'UserNotificationPreferences':
+        """Récupère ou crée les préférences pour un utilisateur"""
+        prefs, created = cls.objects.get_or_create(user=user)
+        return prefs
+    
+    def should_notify(self, notification_type: str, channel: str) -> bool:
+        """
+        Vérifie si l'utilisateur doit recevoir une notification.
+        
+        Args:
+            notification_type: 'order_confirmation', 'order_update', 'delivery', 'payment', 'promotion'
+            channel: 'push', 'email', 'sms'
+        
+        Returns:
+            bool: True si la notification doit être envoyée
+        """
+        # Vérifier le canal
+        channel_enabled = {
+            'push': self.push_enabled,
+            'email': self.email_enabled,
+            'sms': self.sms_enabled,
+        }.get(channel, False)
+        
+        if not channel_enabled:
+            return False
+        
+        # Vérifier le type
+        type_enabled = {
+            'order_confirmation': self.notify_order_confirmations,
+            'order_update': self.notify_order_updates,
+            'delivery': self.notify_delivery,
+            'payment': self.notify_payments,
+            'promotion': self.notify_promotions,
+        }.get(notification_type, True)
+        
+        return type_enabled

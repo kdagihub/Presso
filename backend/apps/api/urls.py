@@ -53,6 +53,18 @@ from apps.api.viewsets.orders import (
     ProviderOrderDetailView,
     ProviderOrderStatusUpdateView,
     ProviderOrderAssignView,
+    # Vérification à la collecte
+    CollectorVerifyQuantityView,
+    CollectorConfirmCollectionView,
+    # Réponse client à l'ajustement
+    ClientAdjustmentStatusView,
+    ClientCompleteAdjustmentView,
+    ClientAcceptReductionView,
+    # Réclamation client
+    ClientClaimStatusView,
+    ClientSubmitClaimView,
+    # Portefeuille client
+    ClientWalletView,
 )
 from apps.api.viewsets.webhooks import (
     orange_delivery_receipt,
@@ -93,6 +105,18 @@ from apps.api.viewsets.delivery import (
     RegenerateDeliveryOTPView,
     DeliveryOTPStatusView,
     ClientDeliveryOTPView,
+)
+from apps.api.viewsets.notifications import (
+    FCMTokenRegisterView,
+    FCMTokenUnregisterView,
+    FCMDeviceListView,
+    FCMDeviceDeleteView,
+    FCMTestNotificationView,
+)
+from apps.api.viewsets.settings import (
+    ProviderFullSettingsView,
+    ClientNotificationPreferencesView,
+    ProviderPauseToggleView,
 )
 
 urlpatterns = [
@@ -164,6 +188,10 @@ urlpatterns = [
     path('providers/orders/<uuid:order_id>/', ProviderOrderDetailView.as_view(), name='provider-order-detail'),
     path('providers/orders/<uuid:order_id>/status/', ProviderOrderStatusUpdateView.as_view(), name='provider-order-status'),
     path('providers/orders/<uuid:order_id>/assign/', ProviderOrderAssignView.as_view(), name='provider-order-assign'),
+    
+    # Vérification à la collecte (Livreur)
+    path('providers/orders/<uuid:order_id>/verify-quantity/', CollectorVerifyQuantityView.as_view(), name='provider-order-verify-quantity'),
+    path('providers/orders/<uuid:order_id>/confirm-collection/', CollectorConfirmCollectionView.as_view(), name='provider-order-confirm-collection'),
 
     # =====================================================================
     # DASHBOARD PRESTATAIRE
@@ -196,8 +224,41 @@ urlpatterns = [
     path('orders/<uuid:order_id>/', OrderDetailView.as_view(), name='client-order-detail'),
     path('orders/<uuid:order_id>/delivery-code/', ClientDeliveryOTPView.as_view(), name='client-order-delivery-code'),
     
+    # Ajustement paiement (si écart détecté à la collecte)
+    path('orders/<uuid:order_id>/adjustment/', ClientAdjustmentStatusView.as_view(), name='client-order-adjustment'),
+    path('orders/<uuid:order_id>/adjustment/complete/', ClientCompleteAdjustmentView.as_view(), name='client-order-adjustment-complete'),
+    path('orders/<uuid:order_id>/adjustment/reduce/', ClientAcceptReductionView.as_view(), name='client-order-adjustment-reduce'),
+    
+    # Réclamation client (après livraison - délai 30 min)
+    path('orders/<uuid:order_id>/claim/', ClientClaimStatusView.as_view(), name='client-order-claim-status'),
+    path('orders/<uuid:order_id>/claim/submit/', ClientSubmitClaimView.as_view(), name='client-order-claim-submit'),
+    
     # =====================================================================
-    # WEBHOOKS
+    # PORTEFEUILLE CLIENT (Crédits)
+    # =====================================================================
+    path('wallet/', ClientWalletView.as_view(), name='client-wallet'),
+    
+    # =====================================================================
+    # PARAMÈTRES
+    # =====================================================================
+    # Paramètres complets prestataire (notifications, disponibilité, sécurité, financier)
+    path('providers/settings/full/', ProviderFullSettingsView.as_view(), name='provider-settings-full'),
+    path('providers/pause/', ProviderPauseToggleView.as_view(), name='provider-pause-toggle'),
+    
+    # Préférences notification client
+    path('clients/notification-preferences/', ClientNotificationPreferencesView.as_view(), name='client-notification-preferences'),
+    
+    # =====================================================================
+    # NOTIFICATIONS PUSH (FCM)
+    # =====================================================================
+    path('notifications/fcm/register/', FCMTokenRegisterView.as_view(), name='fcm-register'),
+    path('notifications/fcm/unregister/', FCMTokenUnregisterView.as_view(), name='fcm-unregister'),
+    path('notifications/devices/', FCMDeviceListView.as_view(), name='fcm-devices'),
+    path('notifications/devices/<uuid:device_id>/', FCMDeviceDeleteView.as_view(), name='fcm-device-delete'),
+    path('notifications/test/', FCMTestNotificationView.as_view(), name='fcm-test'),
+    
+    # =====================================================================
+    # WEBHOOKS ORANGE SMS
     # =====================================================================
     # Orange SMS
     path('webhooks/orange/dr/', orange_delivery_receipt, name='orange_delivery_receipt'),

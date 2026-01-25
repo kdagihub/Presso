@@ -47,6 +47,12 @@ from .onboarding import (
     OnboardingCompleteResponseSerializer,
     ProviderOpenStatusSerializer,
 )
+from .notifications import (
+    FCMTokenRegisterSerializer,
+    FCMTokenUnregisterSerializer,
+    FCMTokenListSerializer,
+    NotificationPreferencesSerializer,
+)
 
 __all__ = [
     'ClientRegisterSerializer',
@@ -88,5 +94,10 @@ __all__ = [
     'ProviderPayoutAccountReadSerializer',
     'OnboardingCompleteResponseSerializer',
     'ProviderOpenStatusSerializer',
+    # Notifications FCM
+    'FCMTokenRegisterSerializer',
+    'FCMTokenUnregisterSerializer',
+    'FCMTokenListSerializer',
+    'NotificationPreferencesSerializer',
 ]
 

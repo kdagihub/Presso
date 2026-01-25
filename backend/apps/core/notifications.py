@@ -102,20 +102,47 @@ class NotificationService:
         if not settings.NOTIFICATION_CHANNELS.get('push', True):
             return
         
-        if not settings.FCM_SERVER_KEY:
-            logger.warning("FCM not configured, skipping push notification")
+        if not settings.FCM_CREDENTIALS_PATH:
+            logger.warning("FCM not configured (FCM_CREDENTIALS_PATH missing), skipping push notification")
             return
         
         try:
             # Import delayed pour éviter les erreurs si FCM pas configuré
-            from apps.core.utils.fcm import send_fcm_notification
+            from apps.core.utils.fcm import send_fcm_multicast, FIREBASE_AVAILABLE
+            from apps.users.models import UserFCMToken
             
-            # Récupérer le token FCM de l'utilisateur
-            # TODO: Implémenter la récupération du FCM token depuis le modèle User
-            # fcm_token = User.objects.get(id=user_id).fcm_token
+            if not FIREBASE_AVAILABLE:
+                logger.warning("Firebase Admin SDK not available")
+                return
             
-            # send_fcm_notification(fcm_token, notification)
-            logger.info(f"Push notification sent to user {user_id}")
+            # Récupérer les tokens FCM actifs de l'utilisateur
+            fcm_tokens = UserFCMToken.get_active_tokens_for_user(user_id)
+            
+            if not fcm_tokens:
+                logger.debug(f"No FCM tokens for user {user_id}, skipping push notification")
+                return
+            
+            # Envoyer la notification à tous les devices
+            result = send_fcm_multicast(fcm_tokens, notification)
+            
+            # Désactiver les tokens qui ont échoué (invalid tokens)
+            if result.get('failure_count', 0) > 0 and result.get('responses'):
+                for i, response in enumerate(result['responses']):
+                    if hasattr(response, 'exception') and response.exception:
+                        # Token invalide - le désactiver
+                        error_code = getattr(response.exception, 'code', '')
+                        if error_code in ['UNREGISTERED', 'INVALID_ARGUMENT']:
+                            try:
+                                token_to_deactivate = fcm_tokens[i]
+                                UserFCMToken.objects.filter(token=token_to_deactivate).update(is_active=False)
+                                logger.info(f"Deactivated invalid FCM token for user {user_id}")
+                            except (IndexError, Exception) as e:
+                                logger.warning(f"Could not deactivate token: {e}")
+            
+            logger.info(
+                f"Push notification sent to user {user_id}: "
+                f"{result.get('success_count', 0)} success, {result.get('failure_count', 0)} failed"
+            )
         except Exception as e:
             logger.warning(f"Push notification failed for user {user_id}: {str(e)}")
     

@@ -41,6 +41,18 @@ from .orders import (
     ProviderOrderDetailView,
     ProviderOrderStatusUpdateView,
     ProviderOrderAssignView,
+    # Vérification à la collecte
+    CollectorVerifyQuantityView,
+    CollectorConfirmCollectionView,
+    # Réponse client à l'ajustement
+    ClientAdjustmentStatusView,
+    ClientCompleteAdjustmentView,
+    ClientAcceptReductionView,
+    # Réclamation client
+    ClientClaimStatusView,
+    ClientSubmitClaimView,
+    # Portefeuille client
+    ClientWalletView,
 )
 from .onboarding import (
     OnboardingStatusView,
@@ -70,6 +82,13 @@ from .delivery import (
     RegenerateDeliveryOTPView,
     DeliveryOTPStatusView,
     ClientDeliveryOTPView,
+)
+from .notifications import (
+    FCMTokenRegisterView,
+    FCMTokenUnregisterView,
+    FCMDeviceListView,
+    FCMDeviceDeleteView,
+    FCMTestNotificationView,
 )
 
 __all__ = [
@@ -108,6 +127,18 @@ __all__ = [
     'ProviderOrderDetailView',
     'ProviderOrderStatusUpdateView',
     'ProviderOrderAssignView',
+    # Vérification à la collecte
+    'CollectorVerifyQuantityView',
+    'CollectorConfirmCollectionView',
+    # Réponse client à l'ajustement
+    'ClientAdjustmentStatusView',
+    'ClientCompleteAdjustmentView',
+    'ClientAcceptReductionView',
+    # Réclamation client
+    'ClientClaimStatusView',
+    'ClientSubmitClaimView',
+    # Portefeuille client
+    'ClientWalletView',
     # Onboarding
     'OnboardingStatusView',
     'OnboardingIdentityView',
@@ -133,5 +164,11 @@ __all__ = [
     'RegenerateDeliveryOTPView',
     'DeliveryOTPStatusView',
     'ClientDeliveryOTPView',
+    # Notifications FCM
+    'FCMTokenRegisterView',
+    'FCMTokenUnregisterView',
+    'FCMDeviceListView',
+    'FCMDeviceDeleteView',
+    'FCMTestNotificationView',
 ]
 

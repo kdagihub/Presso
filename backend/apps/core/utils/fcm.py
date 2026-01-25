@@ -122,44 +122,52 @@ def send_fcm_multicast(
     try:
         initialize_firebase()
         
-        # Construire le message multicast
-        message = messaging.MulticastMessage(
-            notification=messaging.Notification(
-                title=notification.get('title', 'PRESSO'),
-                body=notification.get('message', ''),
-            ),
-            data=notification.get('data', {}),
-            android=messaging.AndroidConfig(
-                priority=priority,
-                notification=messaging.AndroidNotification(
-                    sound='default',
-                    channel_id='presso_notifications',
-                ),
-            ),
-            apns=messaging.APNSConfig(
-                payload=messaging.APNSPayload(
-                    aps=messaging.Aps(
-                        sound='default',
-                        badge=1,
+        # Convertir toutes les valeurs de data en strings (requis par FCM)
+        raw_data = notification.get('data', {})
+        data = {k: str(v) if v is not None else '' for k, v in raw_data.items()}
+        
+        success_count = 0
+        failure_count = 0
+        
+        # Envoyer à chaque token individuellement (plus fiable que multicast)
+        for token in fcm_tokens:
+            try:
+                message = messaging.Message(
+                    notification=messaging.Notification(
+                        title=notification.get('title', 'PRESSOW'),
+                        body=notification.get('message', ''),
                     ),
-                ),
-            ),
-            tokens=fcm_tokens,
-        )
+                    data=data,
+                    android=messaging.AndroidConfig(
+                        priority=priority,
+                        notification=messaging.AndroidNotification(
+                            sound='default',
+                            channel_id='presso_notifications',
+                        ),
+                    ),
+                    apns=messaging.APNSConfig(
+                        payload=messaging.APNSPayload(
+                            aps=messaging.Aps(
+                                sound='default',
+                                badge=1,
+                            ),
+                        ),
+                    ),
+                    token=token,
+                )
+                
+                response = messaging.send(message)
+                logger.info(f"FCM sent to device: {response}")
+                success_count += 1
+            except Exception as token_error:
+                logger.warning(f"FCM failed for token: {token_error}")
+                failure_count += 1
         
-        # Envoyer le message
-        response = messaging.send_multicast(message)
-        
-        logger.info(
-            f"FCM multicast sent: "
-            f"{response.success_count} success, "
-            f"{response.failure_count} failures"
-        )
+        logger.info(f"FCM batch sent: {success_count} success, {failure_count} failures")
         
         return {
-            'success_count': response.success_count,
-            'failure_count': response.failure_count,
-            'responses': response.responses
+            'success_count': success_count,
+            'failure_count': failure_count,
         }
     
     except Exception as e:

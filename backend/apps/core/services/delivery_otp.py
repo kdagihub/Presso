@@ -129,15 +129,20 @@ class DeliveryOTPService:
             # Calculer les montants si pas déjà fait
             order.calculate_amounts()
             
-            # Programmer le payout automatique
-            cls._schedule_automatic_payout(order)
+            # ═══════════════════════════════════════════════════════════════
+            # LIBÉRATION IMMÉDIATE DU PAIEMENT (Nouveau système)
+            # Pas de payout automatique différé - l'argent va directement
+            # sur le portefeuille du prestataire
+            # ═══════════════════════════════════════════════════════════════
+            release_result = cls._release_immediate_payment(order)
         
         logger.info(
             f"OTP validé pour commande {order.numero}. "
-            f"Payout programmé pour {order.payout_scheduled_at}"
+            f"Paiement libéré immédiatement: {order.provider_net_amount} FCFA. "
+            f"Délai réclamation client: {order.claim_deadline}"
         )
         
-        return True, "Livraison validée avec succès ! Le virement sera effectué sous 2 heures."
+        return True, f"Livraison validée avec succès ! {order.provider_net_amount} FCFA ont été crédités à votre portefeuille."
     
     @classmethod
     def regenerate_otp(cls, order: Order) -> Tuple[str, str]:
@@ -188,29 +193,102 @@ class DeliveryOTPService:
         return True
     
     @classmethod
-    def _schedule_automatic_payout(cls, order: Order) -> None:
+    def _release_immediate_payment(cls, order: Order, claim_window_minutes: int = 30) -> dict:
         """
-        Programme le payout automatique après le délai de sécurité.
+        Libère immédiatement le paiement vers le portefeuille du prestataire.
+        
+        Nouveau système : Pas de payout automatique différé.
+        L'argent est crédité directement sur le portefeuille du prestataire
+        dès la validation de l'OTP. Le client a ensuite X minutes pour
+        faire une réclamation si problème.
         
         Args:
             order: La commande livrée
+            claim_window_minutes: Délai en minutes pour réclamation client (défaut: 30)
+            
+        Returns:
+            dict avec les détails de la libération
         """
-        from apps.core.services.payout import PayoutService
+        try:
+            # Utiliser la méthode du modèle Order pour libérer le paiement
+            result = order.release_payment_to_provider(claim_window_minutes=claim_window_minutes)
+            
+            logger.info(
+                f"Paiement libéré immédiatement pour commande {order.numero}: "
+                f"{order.provider_net_amount} FCFA. "
+                f"Réclamation possible jusqu'à {order.claim_deadline}"
+            )
+            
+            # Envoyer notifications
+            cls._send_payment_notifications(order)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Erreur libération paiement commande {order.numero}: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    @classmethod
+    def _send_payment_notifications(cls, order: Order) -> None:
+        """
+        Envoie les notifications après libération du paiement.
         
-        # Utiliser le délai configuré
-        platform = cls.get_platform_settings()
-        delay_hours = platform.payout_delay_hours
-        
-        # Programmer le payout
-        order.schedule_payout(delay_hours=delay_hours)
-        
-        # Créer la demande de payout (sera exécutée par Celery)
-        PayoutService.create_payout_request_for_order(order)
-        
-        logger.info(
-            f"Payout automatique programmé pour commande {order.numero} "
-            f"à {order.payout_scheduled_at}"
-        )
+        - Notifie le prestataire du crédit reçu
+        - Notifie le client de la livraison avec délai de réclamation
+        """
+        try:
+            from apps.core.services.notification_dispatcher import notification_dispatcher
+            
+            # Notifier le prestataire
+            try:
+                notification_dispatcher.notify_provider_payment_released(
+                    order=order,
+                    amount=order.provider_net_amount
+                )
+            except AttributeError:
+                # La méthode n'existe peut-être pas encore
+                logger.warning("notify_provider_payment_released non disponible")
+            
+            # Notifier le client
+            try:
+                notification_dispatcher.notify_client_order_delivered(
+                    order=order,
+                    claim_deadline=order.claim_deadline
+                )
+            except AttributeError:
+                # La méthode n'existe peut-être pas encore
+                logger.warning("notify_client_order_delivered non disponible")
+                
+        except ImportError as e:
+            logger.warning(f"Service notification non disponible: {e}")
+        except Exception as e:
+            logger.error(f"Erreur envoi notifications paiement: {e}")
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # MÉTHODE LEGACY (Commentée - À supprimer plus tard si non nécessaire)
+    # ═══════════════════════════════════════════════════════════════════
+    
+    # @classmethod
+    # def _schedule_automatic_payout(cls, order: Order) -> None:
+    #     """
+    #     [DÉSACTIVÉ] Programme le payout automatique après le délai de sécurité.
+    #     Remplacé par _release_immediate_payment() pour un système plus transparent.
+    #     """
+    #     from apps.core.services.payout import PayoutService
+    #     
+    #     platform = cls.get_platform_settings()
+    #     delay_hours = platform.payout_delay_hours
+    #     
+    #     order.schedule_payout(delay_hours=delay_hours)
+    #     PayoutService.create_payout_request_for_order(order)
+    #     
+    #     logger.info(
+    #         f"Payout automatique programmé pour commande {order.numero} "
+    #         f"à {order.payout_scheduled_at}"
+    #     )
     
     @classmethod
     def get_otp_status(cls, order: Order) -> dict:
