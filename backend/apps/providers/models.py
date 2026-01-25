@@ -101,6 +101,13 @@ class Provider(models.Model):
         verbose_name="Adresse complète"
     )
     
+    ville = models.CharField(
+        max_length=120,
+        blank=True,
+        verbose_name="Ville",
+        help_text="Ville du prestataire"
+    )
+    
     quartier = models.CharField(
         max_length=200,
         blank=True,

@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 from typing import Any, Optional
+from decimal import Decimal, InvalidOperation
 
 from rest_framework import serializers  # type: ignore
 
-from apps.providers.models import ProviderAgency, ProviderStaff
+from apps.providers.models import Provider, ProviderAgency, ProviderStaff
 from apps.core.models import Role, ProviderSettings
 from apps.services.models import Service, ServiceTemplate, ArticleType, Matiere
 from apps.tariffs.models import ProviderService as ProviderServiceLink, Tariff
@@ -23,6 +24,99 @@ def _validate_hex_color(value: str) -> str:
     if not all(c in '0123456789abcdefABCDEF' for c in hex_part):
         raise serializers.ValidationError("Couleur hexadécimale invalide.")
     return value
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROVIDER PROFILE (Modifier les infos du Provider lui-même)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class ProviderProfileSerializer(serializers.ModelSerializer):
+    """
+    Serializer en lecture seule pour le profil complet du Provider
+    """
+    location = serializers.SerializerMethodField()
+    photo_local_url = serializers.SerializerMethodField()
+    type_display = serializers.CharField(source='get_type_display', read_only=True)
+    owner = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Provider
+        fields = [
+            'id', 'type', 'type_display', 'nom_commercial',
+            'photo_local', 'photo_local_url',
+            'zone_couverture', 'rayon_km',
+            'latitude', 'longitude', 'location',
+            'adresse', 'ville', 'quartier',
+            'statut_kyc', 'is_active',
+            'owner', 'created', 'updated'
+        ]
+        read_only_fields = fields
+    
+    def get_location(self, obj: Provider) -> Optional[dict[str, float]]:
+        if obj.location:
+            return {'lat': obj.location.y, 'lng': obj.location.x}
+        return None
+    
+    def get_photo_local_url(self, obj: Provider) -> Optional[str]:
+        if obj.photo_local:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.photo_local.url)
+            return obj.photo_local.url
+        return None
+    
+    def get_owner(self, obj: Provider) -> Optional[dict[str, Any]]:
+        return {
+            'id': str(obj.user.id),
+            'username': obj.user.username,
+            'first_name': obj.user.first_name,
+            'last_name': obj.user.last_name,
+            'phone': obj.user.phone,
+            'email': obj.user.email,
+        }
+
+
+class ProviderProfileUpdateSerializer(serializers.ModelSerializer):
+    """
+    Serializer pour modifier les infos du Provider
+    """
+    class Meta:
+        model = Provider
+        fields = [
+            'nom_commercial', 'photo_local',
+            'zone_couverture', 'rayon_km',
+            'adresse', 'quartier',
+            # Note: latitude/longitude/ville ne sont PAS modifiables après onboarding
+        ]
+        extra_kwargs = {field: {'required': False} for field in fields}
+    
+    def validate_photo_local(self, value):
+        if value:
+            # Vérifier la taille (max 5MB)
+            if value.size > 5 * 1024 * 1024:
+                raise serializers.ValidationError("La photo ne doit pas dépasser 5MB.")
+            # Vérifier le type MIME
+            allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+            if hasattr(value, 'content_type') and value.content_type not in allowed_types:
+                raise serializers.ValidationError("Format non supporté. Utilisez JPEG, PNG, GIF ou WebP.")
+        return value
+    
+    def validate_rayon_km(self, value):
+        if value is not None:
+            if value < Decimal('0.5'):
+                raise serializers.ValidationError("Le rayon minimum est de 0.5 km.")
+            if value > Decimal('100'):
+                raise serializers.ValidationError("Le rayon maximum est de 100 km.")
+        return value
+    
+    def validate_nom_commercial(self, value):
+        if value:
+            value = value.strip()
+            if len(value) < 2:
+                raise serializers.ValidationError("Le nom commercial doit avoir au moins 2 caractères.")
+            if len(value) > 200:
+                raise serializers.ValidationError("Le nom commercial ne doit pas dépasser 200 caractères.")
+        return value
 
 
 class ProviderAgencySerializer(serializers.ModelSerializer):
@@ -190,12 +284,18 @@ class ProviderStaffActivateSerializer(serializers.Serializer):
 
 
 class ProviderSettingsSerializer(serializers.ModelSerializer):
+    logo_url = serializers.SerializerMethodField()
+    storefront_photo_url = serializers.SerializerMethodField()
+    
     class Meta:
         model = ProviderSettings
         fields = [
             'id',
             'business_name',
             'logo',
+            'logo_url',
+            'storefront_photo',
+            'storefront_photo_url',
             'primary_color',
             'auto_accept_orders',
             'require_payment_before',
@@ -210,7 +310,23 @@ class ProviderSettingsSerializer(serializers.ModelSerializer):
             'created',
             'updated',
         ]
-        read_only_fields = ['id', 'created', 'updated']
+        read_only_fields = ['id', 'created', 'updated', 'logo_url', 'storefront_photo_url']
+    
+    def get_logo_url(self, obj) -> Optional[str]:
+        if obj.logo:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.logo.url)
+            return obj.logo.url
+        return None
+    
+    def get_storefront_photo_url(self, obj) -> Optional[str]:
+        if obj.storefront_photo:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.storefront_photo.url)
+            return obj.storefront_photo.url
+        return None
 
 
 class ProviderSettingsUpdateSerializer(serializers.ModelSerializer):
@@ -219,6 +335,7 @@ class ProviderSettingsUpdateSerializer(serializers.ModelSerializer):
         fields = [
             'business_name',
             'logo',
+            'storefront_photo',
             'primary_color',
             'auto_accept_orders',
             'require_payment_before',
@@ -232,6 +349,18 @@ class ProviderSettingsUpdateSerializer(serializers.ModelSerializer):
             'metadata',
         ]
         extra_kwargs = {field: {'required': False} for field in fields}
+    
+    def validate_logo(self, value):
+        if value:
+            if value.size > 2 * 1024 * 1024:
+                raise serializers.ValidationError("Le logo ne doit pas dépasser 2MB.")
+        return value
+    
+    def validate_storefront_photo(self, value):
+        if value:
+            if value.size > 5 * 1024 * 1024:
+                raise serializers.ValidationError("La photo ne doit pas dépasser 5MB.")
+        return value
 
     def validate_primary_color(self, value: str) -> str:
         return _validate_hex_color(value)

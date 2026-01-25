@@ -37,6 +37,16 @@ from .orders import (
     ProviderOrderStatusSerializer,
     ProviderOrderAssignSerializer,
 )
+from .onboarding import (
+    OnboardingStatusSerializer,
+    OnboardingIdentitySerializer,
+    OnboardingServicesSerializer,
+    OnboardingServiceItemSerializer,
+    OnboardingPayoutAccountSerializer,
+    ProviderPayoutAccountReadSerializer,
+    OnboardingCompleteResponseSerializer,
+    ProviderOpenStatusSerializer,
+)
 
 __all__ = [
     'ClientRegisterSerializer',
@@ -69,5 +79,14 @@ __all__ = [
     'OrderSerializer',
     'ProviderOrderStatusSerializer',
     'ProviderOrderAssignSerializer',
+    # Onboarding
+    'OnboardingStatusSerializer',
+    'OnboardingIdentitySerializer',
+    'OnboardingServicesSerializer',
+    'OnboardingServiceItemSerializer',
+    'OnboardingPayoutAccountSerializer',
+    'ProviderPayoutAccountReadSerializer',
+    'OnboardingCompleteResponseSerializer',
+    'ProviderOpenStatusSerializer',
 ]
 

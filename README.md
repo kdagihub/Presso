@@ -563,3 +563,21 @@ Résumé de ce qu'il voit en arrivant (Dashboard Home) :
 Son état de disponibilité (Ouvert/Fermé).
 Son solde d'argent disponible (pour le motiver).
 Les actions immédiates à faire (Nouvelles commandes à accepter).
+
+
+## ################### CHARTE GRAPHIQUE PRSSOW MVP"
+
+Design épuré :
+Couleurs légères et subtiles (tons de gris, bleu léger)
+Ombres douces (box-shadow: 0 1px 3px)
+Beaucoup d'espace blanc
+Cartes arrondies (border-radius: 12px)
+Typographie claire et hiérarchisée
+Icônes SVG inline (pas d'icônes lourdes)
+
+Charte graphique appliquée :
+Couleur	Code	Utilisation
+Bleu Pressow	#37A1EF	Boutons, liens, accents, carte principale
+Orange Pressow	#F9A13B	Badges commandes en attente, alertes
+Blanc	#FFFFFF	Fonds, textes sur fond coloré
+Vert succès	#10b981	Revenus, validations, badges vérifiés

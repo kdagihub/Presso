@@ -6,3 +6,7 @@ class ProvidersConfig(AppConfig):
     name = 'apps.providers'
     label = 'providers'
     verbose_name = 'Gestion des Prestataires'
+    
+    def ready(self):
+        """Charge les signals au démarrage de l'application."""
+        import apps.providers.signals  # noqa: F401

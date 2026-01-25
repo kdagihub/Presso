@@ -22,6 +22,8 @@ from apps.api.permissions import (
     require_can_manage_tariffs,
 )
 from apps.api.serializers.providers import (
+    ProviderProfileSerializer,
+    ProviderProfileUpdateSerializer,
     ProviderAgencySerializer,
     ProviderAgencyWriteSerializer,
     ProviderStaffSerializer,
@@ -125,6 +127,102 @@ def _assert_can_modify_owner(actor: Optional[ProviderStaff], target: ProviderSta
     if actor and actor.system_role == 'owner':
         return
     raise PermissionDenied("Seul le propriétaire peut modifier un propriétaire")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROVIDER PROFILE (Infos du Provider lui-même)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class ProviderProfileView(APIView):
+    """
+    Endpoint pour lire/modifier le profil du Provider connecté
+    GET: Retourne les infos complètes du Provider
+    PATCH: Modifie les infos du Provider (nom_commercial, photo_local, zone, etc.)
+    """
+    permission_classes = [permissions.IsAuthenticated, IsProviderMember]
+    
+    def get(self, request):
+        provider, _ = require_provider_member(request)
+        serializer = ProviderProfileSerializer(provider, context={'request': request})
+        return Response(serializer.data)
+    
+    def patch(self, request):
+        provider, _ = require_provider_member(request)
+        
+        # Seul le owner peut modifier les infos du provider
+        staff = provider.staff_members.filter(user=request.user).first()
+        if staff and staff.system_role != 'owner':
+            raise PermissionDenied("Seul le propriétaire peut modifier les informations de l'entreprise.")
+        
+        serializer = ProviderProfileUpdateSerializer(
+            provider, 
+            data=request.data, 
+            partial=True,
+            context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        
+        # Gérer la suppression de l'ancienne photo si une nouvelle est uploadée
+        if 'photo_local' in request.data and provider.photo_local:
+            provider.photo_local.delete(save=False)
+        
+        serializer.save()
+        
+        return Response({
+            'message': 'Profil entreprise mis à jour avec succès',
+            'provider': ProviderProfileSerializer(provider, context={'request': request}).data
+        })
+
+
+class ProviderPhotoView(APIView):
+    """
+    Endpoint dédié pour upload/suppression de la photo du local
+    POST: Upload une nouvelle photo
+    DELETE: Supprime la photo actuelle
+    """
+    permission_classes = [permissions.IsAuthenticated, IsProviderMember]
+    
+    def post(self, request):
+        provider, _ = require_provider_member(request)
+        
+        # Vérifier les permissions
+        staff = provider.staff_members.filter(user=request.user).first()
+        if staff and staff.system_role != 'owner':
+            raise PermissionDenied("Seul le propriétaire peut modifier la photo de l'entreprise.")
+        
+        if 'photo_local' not in request.FILES:
+            raise ValidationError({'photo_local': 'Aucune photo fournie.'})
+        
+        photo = request.FILES['photo_local']
+        
+        # Vérifier la taille (max 5MB)
+        if photo.size > 5 * 1024 * 1024:
+            raise ValidationError({'photo_local': 'La photo ne doit pas dépasser 5MB.'})
+        
+        # Supprimer l'ancienne photo si elle existe
+        if provider.photo_local:
+            provider.photo_local.delete(save=False)
+        
+        provider.photo_local = photo
+        provider.save(update_fields=['photo_local', 'updated'])
+        
+        return Response({
+            'message': 'Photo mise à jour avec succès',
+            'photo_url': request.build_absolute_uri(provider.photo_local.url) if provider.photo_local else None
+        })
+    
+    def delete(self, request):
+        provider, _ = require_provider_member(request)
+        
+        # Vérifier les permissions
+        staff = provider.staff_members.filter(user=request.user).first()
+        if staff and staff.system_role != 'owner':
+            raise PermissionDenied("Seul le propriétaire peut supprimer la photo de l'entreprise.")
+        
+        if provider.photo_local:
+            provider.photo_local.delete(save=True)
+            return Response({'message': 'Photo supprimée avec succès'})
+        return Response({'message': 'Aucune photo à supprimer'}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class ProviderAgencyListCreateView(APIView):
@@ -284,7 +382,8 @@ class ProviderSettingsView(APIView):
     def get(self, request):
         provider, _ = require_provider_member(request)
         settings = _get_or_create_settings(provider)
-        return Response(ProviderSettingsSerializer(settings).data)
+        # Passer le contexte request pour que les URLs soient absolues
+        return Response(ProviderSettingsSerializer(settings, context={'request': request}).data)
 
     def patch(self, request):
         provider, _ = require_can_manage_settings(request)
@@ -292,7 +391,9 @@ class ProviderSettingsView(APIView):
         serializer = ProviderSettingsUpdateSerializer(settings, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         serializer.save()
-        return Response(ProviderSettingsSerializer(settings).data)
+        # Recharger et passer le contexte request pour que les URLs soient absolues
+        settings.refresh_from_db()
+        return Response(ProviderSettingsSerializer(settings, context={'request': request}).data)
 
 
 class ProviderServiceListCreateView(APIView):
@@ -510,3 +611,73 @@ class CatalogProviderServiceDetailView(APIView):
             'tariffs': TariffSerializer(tariffs, many=True).data,
         }
         return Response(data)
+
+
+class NearbyProvidersView(APIView):
+    """
+    GET /api/catalog/providers/nearby/?lat=X&lng=Y&radius=10
+    
+    Liste les pressings disponibles proches d'une position géographique.
+    Endpoint public (pas d'authentification requise).
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        lat = request.query_params.get('lat')
+        lng = request.query_params.get('lng')
+        radius = int(request.query_params.get('radius', 10))  # km par défaut
+
+        if not lat or not lng:
+            return Response(
+                {'detail': 'Les paramètres lat et lng sont requis'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            lat = float(lat)
+            lng = float(lng)
+        except ValueError:
+            return Response(
+                {'detail': 'lat et lng doivent être des nombres valides'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Récupérer les providers actifs avec onboarding terminé
+        # Les champs onboarding_completed et is_open sont dans ProviderSettings
+        providers = Provider.objects.filter(
+            settings__onboarding_completed=True,
+            settings__is_open=True,
+        ).select_related('settings').prefetch_related('provider_services')
+
+        # TODO: Ajouter filtrage géographique avec PostGIS quand les données seront disponibles
+        # from django.contrib.gis.geos import Point
+        # from django.contrib.gis.measure import D
+        # point = Point(lng, lat, srid=4326)
+        # providers = providers.filter(location__distance_lte=(point, D(km=radius)))
+
+        # Pour le MVP, on retourne tous les providers actifs (max 50)
+        providers = providers[:50]
+
+        result = []
+        for provider in providers:
+            # Compter les services disponibles
+            services_count = provider.provider_services.filter(is_available=True).count()
+            
+            # Récupérer les settings (on sait qu'ils existent car on a filtré dessus)
+            prov_settings = provider.settings
+            
+            result.append({
+                'id': str(provider.id),
+                'nom_commercial': provider.nom_commercial,
+                'photo': provider.photo_local.url if provider.photo_local else None,
+                'ville': provider.ville or '',
+                'adresse': provider.adresse or '',
+                'latitude': float(provider.latitude) if provider.latitude else None,
+                'longitude': float(provider.longitude) if provider.longitude else None,
+                'note_moyenne': 4.5,  # TODO: Calculer la vraie note moyenne
+                'services_count': services_count,
+                'is_open': prov_settings.is_open,
+                'min_order_amount': float(prov_settings.min_order_amount) if prov_settings.min_order_amount else 500,
+            })
+
+        return Response(result)

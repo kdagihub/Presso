@@ -42,6 +42,35 @@ from .orders import (
     ProviderOrderStatusUpdateView,
     ProviderOrderAssignView,
 )
+from .onboarding import (
+    OnboardingStatusView,
+    OnboardingIdentityView,
+    OnboardingServicesView,
+    OnboardingPayoutView,
+    OnboardingCompleteView,
+    ProviderOpenStatusView,
+    ProviderPayoutAccountListCreateView,
+    ProviderPayoutAccountDetailView,
+)
+from .wallet import (
+    WalletSummaryView,
+    WalletTransactionsView,
+    PayoutRequestView,
+    PayoutHistoryView,
+    PayoutCancelView,
+)
+from .dashboard import (
+    DashboardSummaryView,
+    DashboardStatsView,
+    ShareLinkView,
+)
+from .delivery import (
+    GenerateDeliveryOTPView,
+    ValidateDeliveryOTPView,
+    RegenerateDeliveryOTPView,
+    DeliveryOTPStatusView,
+    ClientDeliveryOTPView,
+)
 
 __all__ = [
     'RegisterClientView',
@@ -79,5 +108,30 @@ __all__ = [
     'ProviderOrderDetailView',
     'ProviderOrderStatusUpdateView',
     'ProviderOrderAssignView',
+    # Onboarding
+    'OnboardingStatusView',
+    'OnboardingIdentityView',
+    'OnboardingServicesView',
+    'OnboardingPayoutView',
+    'OnboardingCompleteView',
+    'ProviderOpenStatusView',
+    'ProviderPayoutAccountListCreateView',
+    'ProviderPayoutAccountDetailView',
+    # Wallet
+    'WalletSummaryView',
+    'WalletTransactionsView',
+    'PayoutRequestView',
+    'PayoutHistoryView',
+    'PayoutCancelView',
+    # Dashboard
+    'DashboardSummaryView',
+    'DashboardStatsView',
+    'ShareLinkView',
+    # Delivery OTP
+    'GenerateDeliveryOTPView',
+    'ValidateDeliveryOTPView',
+    'RegenerateDeliveryOTPView',
+    'DeliveryOTPStatusView',
+    'ClientDeliveryOTPView',
 ]
 

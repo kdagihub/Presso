@@ -329,7 +329,7 @@ Front‑end (Vite, par env)
 - Lockout login cache + purge au succès.
 
 6) Audit
-- `AuthEventLog` + `write_auth_event`.
+- `AuthEventLog` + `write_auth_event`
 
 7) Front
 - Créer service HTTP Axios:
@@ -352,3 +352,151 @@ Front‑end (Vite, par env)
 - Throttling DRF: `DEFAULT_THROTTLE_CLASSES=ScopedRateThrottle` + `DEFAULT_THROTTLE_RATES` par scope.
 
 Si tu veux, je peux transformer ce contenu en fichier `AUTH_CONTEXT.md` au format prêt à coller dans un autre repo, ou produire des snippets de config Traefik/CSP pour le front.
+
+
+## ETAPES D'implémentations des fonctionnalités du MVP:
+Excellente discussion ! Tu as un modèle économique très solide. Voici le **plan d'implémentation complet** étape par étape :
+
+---
+
+## 📋 PLAN D'IMPLÉMENTATION MVP - Backend → Frontend
+
+### **PHASE 1 : MODÈLES BACKEND (Fondations)**
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  1.1 ProviderWallet          │  Solde disponible du prestataire        │
+│  1.2 WalletTransaction       │  Historique des mouvements (+/-)        │
+│  1.3 PayoutRequest           │  Demandes de cashout (si manuel)        │
+│  1.4 Order.delivery_otp      │  Code OTP pour valider livraison        │
+│  1.5 Order.payout_status     │  Statut du virement (pending/sent/fail) │
+│  1.6 PlatformSettings        │  Commission %, montant min, délai payout│
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### **PHASE 2 : SERVICES BACKEND (Logique métier)**
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  2.1 MonerooService          │  Intégration API Moneroo (collect/payout)│
+│  2.2 WalletService           │  Créditer/débiter le wallet             │
+│  2.3 PayoutService           │  Déclencher payout après délai 2h       │
+│  2.4 OTPDeliveryService      │  Générer/valider OTP livraison          │
+│  2.5 NotificationService     │  Push/WhatsApp nouvelles commandes      │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### **PHASE 3 : API ENDPOINTS**
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  WALLET                                                                 │
+│  ├─ GET  /api/provider/wallet/              │ Solde + stats            │
+│  ├─ GET  /api/provider/wallet/transactions/ │ Historique               │
+│  └─ POST /api/provider/wallet/payout/       │ Demander retrait manuel  │
+│                                                                         │
+│  COMMANDES (ajouts)                                                     │
+│  ├─ POST /api/orders/{id}/generate-otp/     │ Générer OTP livraison    │
+│  ├─ POST /api/orders/{id}/validate-otp/     │ Valider OTP (livreur)    │
+│  └─ GET  /api/orders/{id}/payout-status/    │ Statut du virement       │
+│                                                                         │
+│  DASHBOARD                                                              │
+│  ├─ GET  /api/provider/dashboard/           │ Stats + checklist        │
+│  └─ GET  /api/provider/share-link/          │ Lien boutique WhatsApp   │
+│                                                                         │
+│  WEBHOOKS MONEROO                                                       │
+│  ├─ POST /api/webhooks/moneroo/collect/     │ Confirmation paiement    │
+│  └─ POST /api/webhooks/moneroo/payout/      │ Confirmation virement    │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### **PHASE 4 : TÂCHES ASYNCHRONES (Celery)**
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  4.1 schedule_payout_task    │ Exécuter payout 2h après OTP validé     │
+│  4.2 retry_failed_payout     │ Réessayer si échec réseau               │
+│  4.3 send_order_notification │ Notifier prestataire nouvelle commande  │
+│  4.4 send_payout_notification│ Notifier prestataire virement reçu      │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### **PHASE 5 : FRONTEND - Dashboard Prestataire**
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│  5.1 Écran d'accueil (Home)                                             │
+│      ├─ Checklist de succès (photos, partage, test)                     │
+│      ├─ Stats du jour (commandes, revenus)                              │
+│      ├─ Nouvelles commandes en attente                                  │
+│      └─ Solde wallet (aperçu rapide)                                    │
+│                                                                         │
+│  5.2 Module Portefeuille (Wallet)                                       │
+│      ├─ Solde disponible                                                │
+│      ├─ En attente de virement (< 2h)                                   │
+│      ├─ Historique des transactions                                     │
+│      └─ Bouton "Demander retrait" (si mode manuel)                      │
+│                                                                         │
+│  5.3 Module Commandes                                                   │
+│      ├─ Liste des commandes (filtres par statut)                        │
+│      ├─ Détail commande + boutons action                                │
+│      ├─ Champ OTP pour validation livraison                             │
+│      └─ Indicateur statut paiement                                      │
+│                                                                         │
+│  5.4 Module Services & Tarifs                                           │
+│      ├─ Liste services (activer/désactiver)                             │
+│      ├─ Modifier prix en 1 clic                                         │
+│      └─ Délai de traitement standard                                    │
+│                                                                         │
+│  5.5 Partage & Visibilité                                               │
+│      ├─ Lien boutique unique                                            │
+│      ├─ Bouton partager WhatsApp                                        │
+│      └─ QR Code                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🚀 ORDRE D'IMPLÉMENTATION RECOMMANDÉ
+
+| Étape | Composant | Durée estimée |
+|-------|-----------|---------------|
+| **1** | Modèles Wallet + Transaction + modifications Order | Backend |
+| **2** | Services (Wallet, OTP livraison) | Backend |
+| **3** | API Endpoints Wallet + Dashboard | Backend |
+| **4** | Store Pinia + API Frontend | Frontend |
+| **5** | Écran Dashboard (Home + Checklist) | Frontend |
+| **6** | Écran Portefeuille (Wallet) | Frontend |
+| **7** | Amélioration module Commandes (OTP) | Frontend |
+| **8** | Intégration Moneroo (peut être mockée au début) | Backend |
+| **9** | Tâches Celery (payout différé) | Backend |
+| **10** | Tests E2E du flux complet | Full stack |
+
+---
+
+## ⚙️ CONSTANTES DE CONFIGURATION
+
+```python
+# settings.py ou PlatformSettings model
+PLATFORM_COMMISSION_PERCENT = Decimal('1.00')  # 1%
+MONEROO_FEE_FIXED = Decimal('6.00')  # ~$0.01 en FCFA
+MIN_ORDER_AMOUNT = Decimal('500.00')  # 500 FCFA minimum
+PAYOUT_DELAY_HOURS = 2  # Délai de sécurité avant virement
+```
+
+---
+
+**Veux-tu que je commence par la Phase 1 (Modèles Backend)** ? Je vais créer :
+
+1. `ProviderWallet` - Le portefeuille
+2. `WalletTransaction` - L'historique des mouvements  
+3. Modifications sur `Order` (OTP livraison + statut payout)
+4. `PlatformSettings` - Configuration globale (commission, délais)

@@ -31,6 +31,10 @@ app.autodiscover_tasks(lambda: [
 
 # Configuration des tâches planifiées (Celery Beat)
 app.conf.beat_schedule = {
+    # ═══════════════════════════════════════════════════════════════════
+    # NETTOYAGE
+    # ═══════════════════════════════════════════════════════════════════
+    
     # Nettoyer les OTP expirés toutes les 30 minutes
     'clean-expired-otp': {
         'task': 'apps.core.tasks.clean_expired_otp',
@@ -41,6 +45,26 @@ app.conf.beat_schedule = {
         'task': 'apps.core.tasks.clean_expired_tokens',
         'schedule': crontab(hour=3, minute=0),
     },
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # PAYOUTS AUTOMATIQUES
+    # ═══════════════════════════════════════════════════════════════════
+    
+    # Traiter les payouts programmés (toutes les 5 minutes)
+    'process-pending-payouts': {
+        'task': 'apps.core.tasks.process_pending_payouts',
+        'schedule': crontab(minute='*/5'),
+    },
+    # Réessayer les payouts échoués (toutes les heures)
+    'retry-failed-payouts': {
+        'task': 'apps.core.tasks.retry_failed_payouts',
+        'schedule': crontab(minute=15),  # À :15 de chaque heure
+    },
+    
+    # ═══════════════════════════════════════════════════════════════════
+    # RAPPORTS
+    # ═══════════════════════════════════════════════════════════════════
+    
     # Générer des rapports quotidiens (1x par jour à 6h du matin)
     'generate-daily-reports': {
         'task': 'apps.core.tasks.generate_daily_reports',
